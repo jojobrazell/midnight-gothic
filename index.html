@@ -2165,6 +2165,11 @@ function moodTick(dt) {
   gradePass.uniforms.uMoodTint.value.lerp(washTarget, k);
   gradePass.uniforms.uMoodAmt.value += (amtTarget - gradePass.uniforms.uMoodAmt.value) * k;
 }
+/* staff-debuggable from any console; costs nothing */
+window.__MOOD = () => ({ mood: S.mood, applied: appliedMood,
+  amt: +gradePass.uniforms.uMoodAmt.value.toFixed(3),
+  tint: gradePass.uniforms.uMoodTint.value.toArray().map(v => +v.toFixed(2)),
+  lights: moodLights.length });
 
 let last = performance.now(), lastDrawn = last, fps = 0;
 function loop(now) {
