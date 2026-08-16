@@ -2379,7 +2379,10 @@ async function boot() {
    nothing to join, and a QR to a dead door is worse than no QR. */
 function showJoinCard() {
   try {
-    const url = location.origin + '/phone.html';
+    /* Local origins (venue laptop) must hand phones the reachable address; public
+       origins carry the branded short link, which redirects to /phone.html here. */
+    const local = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(location.hostname);
+    const url = local ? location.origin + '/phone.html' : 'https://mixr.link/gothic-experience';
     const el = document.getElementById('joinQr');
     if (window.qrcode && el) {
       const q = window.qrcode(0, 'M'); q.addData(url); q.make();
