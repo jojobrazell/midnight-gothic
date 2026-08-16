@@ -85,13 +85,15 @@
   /* Turn the room: four designed moods as swatches. The room turns when enough of
      the floor asks, so the meter shows the vote building; a lone tap that "does
      nothing" without a meter reads as a broken button. */
-  .sws{display:flex;justify-content:center;gap:14px;margin-top:9px}
-  .sw{width:46px;height:46px;border-radius:9999px;cursor:pointer;padding:0;
+  .sws{display:flex;justify-content:center;gap:11px;margin-top:9px}
+  .sw{width:42px;height:42px;border-radius:9999px;cursor:pointer;padding:0;
     border:2px solid rgba(255,255,255,.16)}
   .sw[data-val="candle"]{background:radial-gradient(circle at 40% 35%,#F6E2A8,#C8A24A)}
   .sw[data-val="moon"]{background:radial-gradient(circle at 40% 35%,#E3E1F2,#8E8BB8)}
   .sw[data-val="ember"]{background:radial-gradient(circle at 40% 35%,#FF8A5C,#A8321C)}
   .sw[data-val="violet"]{background:radial-gradient(circle at 40% 35%,#CDA0FF,#6B3FB8)}
+  .sw[data-val="rose"]{background:radial-gradient(circle at 40% 35%,#FFB3CF,#C2477E)}
+  .sw[data-val="jade"]{background:radial-gradient(circle at 40% 35%,#9BEFC6,#1F8A58)}
   .sw.on{border-color:var(--gold);box-shadow:0 0 0 3px rgba(200,162,74,.35)}
   .sw:disabled{opacity:.36;cursor:default}
   .meter{height:4px;border-radius:2px;background:rgba(255,255,255,.09);overflow:hidden;
@@ -171,6 +173,8 @@
       <button type="button" class="sw" data-act="mood" data-val="moon" aria-label="Moonlight"></button>
       <button type="button" class="sw" data-act="mood" data-val="ember" aria-label="Ember"></button>
       <button type="button" class="sw" data-act="mood" data-val="violet" aria-label="Violet"></button>
+      <button type="button" class="sw" data-act="mood" data-val="rose" aria-label="Rose"></button>
+      <button type="button" class="sw" data-act="mood" data-val="jade" aria-label="Jade"></button>
     </div>
     <p class="count" id="moodMsg" style="margin-top:9px">The room is candlelit</p>
     <p class="fine" id="ctlMsg" style="min-height:17px;margin-top:9px"></p>
@@ -299,9 +303,11 @@ for (const b of CTL) b.dataset.label = b.textContent;
 const lockAct = {};
 let lockAll = 0, voteOpen = false, sayUntil = 0;
 let mood = 'candle', myMood = null;
-const MOODNAME = { candle: 'candlelight', moon: 'moonlight', ember: 'ember', violet: 'violet' };
+const MOODNAME = { candle: 'candlelight', moon: 'moonlight', ember: 'ember',
+                   violet: 'violet', rose: 'rose', jade: 'jade' };
 const ROOMIS = { candle: 'The room is candlelit', moon: 'The room is under moonlight',
-                 ember: 'The room burns ember', violet: 'The room is violet' };
+                 ember: 'The room burns ember', violet: 'The room is violet',
+                 rose: 'The room blushes rose', jade: 'The room glows jade' };
 
 function say(msg) { $('#ctlMsg').textContent = msg; sayUntil = Date.now() + 4000; }
 

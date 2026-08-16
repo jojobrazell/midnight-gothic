@@ -50,7 +50,7 @@ const DEFAULTS = {
    stops two hundred phones on a packed floor from melting the projection at 1am. */
 /* The moods guests can vote the room into. Each is a designed lighting palette
    in the room page; the server only referees names. */
-const MOODS = ['candle','moon','ember','violet'];
+const MOODS = ['candle','moon','ember','violet','rose','jade'];
 
 const CONTROL = {
   windowMs: 10000,      // the per-guest budget window

@@ -77,15 +77,15 @@
   #join{position:fixed;left:2.2vh;bottom:2.2vh;z-index:40;display:none;align-items:center;
     gap:1.6vh;padding:1.4vh 1.8vh;border:1px solid rgba(200,162,74,.42);border-radius:10px;
     background:rgba(11,7,18,.58);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
-  #joinQr{width:11vh;height:11vh;background:#EDE4D3;padding:.7vh;border-radius:6px}
+  #joinQr{width:7.5vh;height:7.5vh;background:#EDE4D3;padding:.5vh;border-radius:5px}
   #joinQr img{width:100%;height:100%;image-rendering:pixelated;display:block}
-  #join .cap{font:600 1.9vh/1.35 'Cormorant Garamond',Georgia,serif;color:#E7C978;
+  #join .cap{font:600 1.6vh/1.35 'Cormorant Garamond',Georgia,serif;color:#E7C978;
     letter-spacing:.22em;text-transform:uppercase;margin:0}
-  #join .url{font:700 1.55vh/1.4 monospace;color:rgba(237,228,211,.72);margin:.5vh 0 0}
+  #join .url{font:700 1.3vh/1.4 monospace;color:rgba(237,228,211,.72);margin:.4vh 0 0}
 </style>
 <div id="join" aria-hidden="true">
   <div id="joinQr"></div>
-  <div><p class="cap">Light a candle</p><p class="url" id="joinUrl"></p></div>
+  <div><p class="cap">Interact with the room</p><p class="url" id="joinUrl"></p></div>
 </div>
 <script src="vendor/qrcode/qrcode.js"></script>
 <script type="module">
@@ -1784,6 +1784,9 @@ const gradePass = new ShaderPass({
     uFocus: { value: 36 }, uBlur: { value: 1.5 }, uTexel: { value: new THREE.Vector2() },
     // dial it live with ?purple=0.55 rather than re-editing a shader on the venue laptop
     uPurple: { value: +(qs.get('purple') || 0.38) },
+    // the mood wash: a constant-luma re-tint of the whole frame, driven by moodTick
+    uMoodTint: { value: new THREE.Vector3(1, 1, 1) },
+    uMoodAmt: { value: 0 },
   },
   vertexShader: `varying vec2 vUv;
     void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
@@ -1791,6 +1794,7 @@ const gradePass = new ShaderPass({
     uniform sampler2D tDiffuse; uniform float uTime; varying vec2 vUv;
     uniform sampler2D tDepth; uniform float uNear; uniform float uFar;
     uniform float uFocus; uniform float uBlur; uniform vec2 uTexel; uniform float uPurple;
+    uniform vec3 uMoodTint; uniform float uMoodAmt;
     float viewZ(vec2 uv) {
       float d = texture2D(tDepth, uv).x;
       // perspective depth is nonlinear; without this the blur ramps in the wrong place
@@ -1841,6 +1845,14 @@ const gradePass = new ShaderPass({
       sw *= 1.0 - clamp((c.r - c.b) * 2.6, 0.0, 1.0);
       vec3 violet = vec3(lum2) * vec3(0.74, 0.47, 1.32);
       c.rgb = mix(c.rgb, violet, sw * uPurple);
+      /* THE MOOD WASH (JoJo, 2026-08-15: light-rig moods alone were too subtle).
+         Same constant-luma re-tint discipline as the split tone, but across the
+         whole frame, weighted toward the shadows so flames stay flames while the
+         ROOM is unmistakably the chosen colour. */
+      if (uMoodAmt > 0.003) {
+        float mw = uMoodAmt * (0.45 + 0.55 * sw);
+        c.rgb = mix(c.rgb, vec3(lum2) * uMoodTint, mw);
+      }
       // monochrome luma-weighted grain: film emulsion, not sensor noise
       float g = hash(gl_FragCoord.xy / 1.25 + vec2(uTime * 37.0)) - 0.5;
       c.rgb += g * 0.026 * mix(1.0, 0.25, l);
@@ -2103,11 +2115,22 @@ function frame(dt) {
    mood is a designed grade over those two groups: scalars on intensity plus an
    optional tint. The crossfade runs in the frame loop so a turn reads as the room
    BREATHING into a new light, never a cut. */
+/* Each mood: light-rig scalars/tints PLUS a full-frame wash (tint + amt) fed to
+   the grade shader, because the rig alone read too subtle from the floor (JoJo,
+   2026-08-15 late). candle is the untouched hero look: amt 0. */
 const MOODS = {
-  candle: { warm: 1.00, cool: 1.00, warmTint: null,     coolTint: null,     mix: 0    },
-  moon:   { warm: 0.30, cool: 2.00, warmTint: null,     coolTint: null,     mix: 0    },
-  ember:  { warm: 1.30, cool: 0.18, warmTint: 0xFF4A22, coolTint: 0xB03A20, mix: 0.60 },
-  violet: { warm: 0.70, cool: 1.55, warmTint: 0xC06BFF, coolTint: 0x7E4DE0, mix: 0.55 },
+  candle: { warm: 1.00, cool: 1.00, warmTint: null,     coolTint: null,     mix: 0,
+            wash: [1.00, 1.00, 1.00], amt: 0 },
+  moon:   { warm: 0.30, cool: 2.20, warmTint: null,     coolTint: null,     mix: 0,
+            wash: [0.62, 0.74, 1.42], amt: 0.42 },
+  ember:  { warm: 1.30, cool: 0.18, warmTint: 0xFF4A22, coolTint: 0xB03A20, mix: 0.60,
+            wash: [1.58, 0.58, 0.36], amt: 0.48 },
+  violet: { warm: 0.70, cool: 1.55, warmTint: 0xC06BFF, coolTint: 0x7E4DE0, mix: 0.55,
+            wash: [1.02, 0.55, 1.55], amt: 0.48 },
+  rose:   { warm: 0.92, cool: 0.70, warmTint: 0xFF6FA8, coolTint: 0xE070A8, mix: 0.55,
+            wash: [1.50, 0.66, 0.96], amt: 0.45 },
+  jade:   { warm: 0.62, cool: 1.25, warmTint: 0x63E6A8, coolTint: 0x2FA06C, mix: 0.50,
+            wash: [0.55, 1.35, 0.85], amt: 0.45 },
 };
 const moodLights = [];
 scene.traverse(o => {
@@ -2119,6 +2142,8 @@ scene.traverse(o => {
 });
 let appliedMood = null;
 const _moodC = new THREE.Color();
+const washTarget = new THREE.Vector3(1, 1, 1);
+let amtTarget = 0;
 function moodTick(dt) {
   if (S.mood !== appliedMood) {
     appliedMood = S.mood;
@@ -2129,12 +2154,16 @@ function moodTick(dt) {
       const tint = e.warm ? m.warmTint : m.coolTint;
       if (tint) e.tC.lerp(_moodC.set(tint), m.mix);
     }
+    washTarget.fromArray(m.wash);
+    amtTarget = m.amt;
   }
   const k = 1 - Math.exp(-dt / 0.9);
   for (const e of moodLights) {
     e.l.intensity += (e.tI - e.l.intensity) * k;
     e.l.color.lerp(e.tC, k);
   }
+  gradePass.uniforms.uMoodTint.value.lerp(washTarget, k);
+  gradePass.uniforms.uMoodAmt.value += (amtTarget - gradePass.uniforms.uMoodAmt.value) * k;
 }
 
 let last = performance.now(), lastDrawn = last, fps = 0;
