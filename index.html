@@ -1,0 +1,2471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MIDNIGHT GOTHIC</title>
+<!-- SHARE KIT. Every URL below is ABSOLUTE on purpose: iMessage, WhatsApp and the social
+     scrapers do not resolve relative paths, so a relative og:image previews as a blank
+     card. BASE URL TO SWAP AT DEPLOY if the folder name changes on Bluehost:
+     https://mixrstudios.com/custom/experiences/midnight-gothic/ -->
+<meta name="description" content="A live candlelit hall, projected. Real modelled stone, gilt and velvet, lit by hundreds of flames that breathe with the music. Built by MIXR Studios for ENDLESS RIVER.">
+<meta name="theme-color" content="#160C20">
+<link rel="icon" href="https://mixrstudios.com/custom/experiences/midnight-gothic/favicon.png" sizes="any">
+<link rel="apple-touch-icon" href="https://mixrstudios.com/custom/experiences/midnight-gothic/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MIXR Studios">
+<meta property="og:title" content="MIDNIGHT GOTHIC">
+<meta property="og:description" content="A live candlelit hall, projected. Hundreds of flames breathing with the music.">
+<meta property="og:url" content="https://mixrstudios.com/custom/experiences/midnight-gothic/">
+<meta property="og:image" content="https://mixrstudios.com/custom/experiences/midnight-gothic/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MIDNIGHT GOTHIC">
+<meta name="twitter:description" content="A live candlelit hall, projected. Hundreds of flames breathing with the music.">
+<meta name="twitter:image" content="https://mixrstudios.com/custom/experiences/midnight-gothic/og.png">
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin:0; padding:0; height:100%; background:#000; overflow:hidden; }
+  canvas { display:block; width:100vw; height:100vh; }
+  * { user-select:none; -webkit-user-select:none; }
+  /* Load-in readout. ?dev=1 only, never on the projection during the night. */
+  #dev { position:fixed; left:10px; top:10px; z-index:9; display:none;
+         font:11px/1.6 ui-monospace,Consolas,monospace; color:#E7C978;
+         background:rgba(0,0,0,.62); border:1px solid rgba(200,162,74,.34);
+         border-radius:10px; padding:8px 10px; white-space:pre; letter-spacing:.02em; }
+  #dev.on { display:block }
+  #bars { display:block; margin-top:6px; border-radius:4px; background:#000 }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor-three/three.module.js",
+  "three/addons/": "./vendor-three/addons/"
+} }
+</script>
+</head>
+<body>
+<!-- LOADING SCREEN. The self-contained build is ~22MB, so without this a shared link shows
+     a black screen for several seconds and reads as broken (it did, to JoJo). This is plain
+     HTML/CSS at the very top of the body with no dependencies, so it paints while the heavy
+     payload is still streaming in. The packer moves the giant importmap to the end of the
+     body precisely so this can appear first. The module hides it once the room is up. -->
+<div id="ld" aria-hidden="true">
+  <div id="ldflame"></div>
+  <div id="ldname">MIDNIGHT GOTHIC</div>
+  <div id="ldsub">lighting the hall&hellip;</div>
+</div>
+<style>
+  #ld{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;gap:20px;transition:opacity .9s ease;
+      background:radial-gradient(120% 92% at 50% 42%,#241432 0%,#160C20 56%,#0B0712 100%);
+      font-family:'Cormorant Garamond',Georgia,serif;}
+  #ldflame{width:26px;height:42px;border-radius:50% 50% 48% 48%/62% 62% 40% 40%;
+      background:radial-gradient(ellipse at 50% 70%,#FFF6DF 0%,#FFC777 44%,#E08A2A 80%,rgba(224,138,42,0) 100%);
+      box-shadow:0 0 40px 14px rgba(255,168,74,.42);transform-origin:50% 92%;
+      animation:ldflk 1.5s ease-in-out infinite;}
+  #ldname{color:#E7C978;font-size:clamp(24px,6vw,34px);letter-spacing:.42em;padding-left:.42em;font-weight:600;}
+  #ldsub{color:rgba(231,201,120,.5);font-size:12px;letter-spacing:.34em;text-transform:uppercase;}
+  @keyframes ldflk{0%,100%{transform:scale(1) rotate(-2.5deg);opacity:.9}
+     50%{transform:scale(1.07,1.14) rotate(2.5deg);opacity:1}}
+</style>
+<div id="dev"><span id="devtext">booting</span><canvas id="bars" width="220" height="26"></canvas></div>
+<script type="module">
+/* MIDNIGHT MIRROR, the projection.
+ *
+ * THE MODEL (JoJo, 2026-08-13): the mirror shows a ROOM, not people. Every guest who
+ * steps through LIGHTS A CANDLE in a baroque ballroom, and the room fills with light as
+ * the floor fills with people.
+ *
+ * The camera is an ENHANCEMENT AND NEVER A DEPENDENCY. Flames have their own spring
+ * physics and look alive with nothing plugged in; the sensor only adds a force. A
+ * camera in a dark venue is the same risk class that killed the projected 3D room, so
+ * this build has to survive it failing, being refused, or never being installed.
+ *
+ * getUserMedia needs a secure context, and the venue machine loads this from localhost,
+ * which counts as one. No HTTPS, no tunnel, no internet.
+ */
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
+import { buildHall, DIMS } from './hall.js';
+import { Flames, MotionField, makeFlameTextures } from './flames.js';
+import { AudioField } from './audio.js';
+import { bakeIrradiance, setFlicker } from './bake.js';
+import { place, hangTopAt, hangBottomAt, partBox } from './models.js';
+import { mergeGeometries } from './vendor-three/addons/utils/BufferGeometryUtils.js';
+
+const qs = new URLSearchParams(location.search);
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const DEV = qs.get('dev') === '1';
+const NOCAM = qs.get('nocam') === '1';
+const NOMIC = qs.get('nomic') === '1';
+/* Perf escape hatches for the venue machine: if the load-in fps readout says the GPU
+   cannot hold 60 with the full stack, drop the expensive layers without touching code.
+   Quality must never hold the night hostage. */
+const NOAO = qs.get('noao') === '1';
+const NOSHADOW = qs.get('noshadow') === '1';
+/* LITE: the phone tier. This room was built for a laptop driving a projector, and the full
+   post stack (GTAO, bloom, SMAA) on top of a 460k-vertex irradiance bake buries a phone GPU,
+   which is the lag JoJo saw. LITE caps the pixel ratio (a retina phone otherwise renders
+   about 4x the pixels), drops the ambient-occlusion pass, halves the shadow map, thins the
+   particles, and SKIPS the bake. The bake's per-vertex solve is the single worst offender
+   for mobile load jank, and the room reads fine on the real-time lights alone (most of the
+   review captures ran nobake). Auto-on for a touch device or a small screen; ?full=1 forces
+   the whole stack (used to render the client video), ?lite=1 forces the tier on desktop. */
+const LITE = qs.has('full') ? false
+           : qs.has('lite') ? true
+           : (matchMedia('(pointer: coarse)').matches || Math.min(innerWidth, innerHeight) < 820);
+
+/* LOADING SCREEN dismiss, defined HERE (before the top-level await that loads the models)
+   so window.__liftSplash exists when the models-ready line calls it. #ld is plain body HTML
+   and this module is deferred, so the element is already present. Called directly on
+   models-ready, never on a poll, with a hard fallback so a stalled or model-less load still
+   clears it. */
+window.__liftSplash = (() => {
+  const ld = document.getElementById('ld');
+  let done = false;
+  const gone = () => { if (done || !ld) return; done = true;
+    ld.style.opacity = '0'; ld.style.pointerEvents = 'none'; setTimeout(() => ld.remove(), 1000); };
+  setTimeout(gone, 16000);
+  return gone;
+})();
+
+/* ---------- PORTAL MODE (default ON) ----------
+   JoJo, 2026-08-13: the projector fills the venue wall floor-to-ceiling, and the hall
+   should read as PART OF THE ROOM: the projected floor continuing the real floor.
+   That is an anamorphic portal, and it needs three things a cinematic camera breaks:
+   the eye at HUMAN height, verticals kept VERTICAL (zero pitch: the lens shifts
+   instead, via an off-axis frustum), and the bottom of the frame meeting the virtual
+   floor exactly AT the wall plane, so the boards flow out of the real skirting.
+   Tune to the venue with ?wallh= (projected wall height, m), ?eyeh= (viewer eye
+   height, m), ?eyed= (typical viewing distance from the wall, m). ?portal=0 falls
+   back to the cinematic framing. */
+/* VENUE-ONLY: the portal only reads correctly when physically projected 1:1 on the
+   wall it was tuned for; on a monitor it looks like a camera on the floor (JoJo,
+   2026-08-13, correctly: "we're way too close to the ground"). Review and proof packs
+   use the cinematic default; the venue machine launches with ?portal=1. */
+const PORTAL = qs.get('portal') === '1';
+const WALL_H = +(qs.get('wallh') || 4.0);
+const EYE_H = +(qs.get('eyeh') || 2.1);
+const EYE_D = +(qs.get('eyed') || 7.0);
+
+const C = {
+  gold: 0xC8A24A, goldHi: 0xE7C978, plum: 0x2A1030, oxblood: 0x5A0E1B,
+  rose: 0xE9A9B8, stone: 0x1A1520, amber: 0xFFB661,
+  // LILAC-SILVER, deliberately not cyan: blue-white moonlight against amber candles
+  // is the teal-and-orange trap, the cheapest grade in realtime 3D (design panel,
+  // 2026-08-13). The moon here lives at ~240deg hue, low saturation.
+  moon: 0xB9B6DC,
+};
+
+/* ---------- renderer ---------- */
+const renderer = new THREE.WebGLRenderer({
+  antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: true,
+});
+renderer.setPixelRatio(Math.min(LITE ? 1.25 : 2, devicePixelRatio || 1));
+renderer.setSize(innerWidth, innerHeight);
+/* AgX, not ACES (research panel, 2026-08-13): ACES is documented to skew EXACTLY our
+   palette — saturated amber drifts lemon, purple drifts cyan. AgX holds both. It sits
+   mid-grey lower, so exposure re-baselines up. */
+renderer.toneMapping = THREE.AgXToneMapping;
+renderer.toneMappingExposure = 1.02;
+/* SHADOWS. The single loudest "cartoony" tell was zero shadow maps: light walked
+   through balconies and nothing sat ON anything. One directional key carries them. */
+renderer.shadowMap.enabled = !NOSHADOW;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+/* FROZEN shadow maps (research panel): the architecture never moves, so the shadow
+   pass renders at 2Hz instead of every frame, which is near-zero cost and still keeps
+   the swaying chandeliers' shadows approximately alive. */
+renderer.shadowMap.autoUpdate = false;
+renderer.shadowMap.needsUpdate = true;
+document.body.appendChild(renderer.domElement);
+
+/* MIDNIGHT PURPLE atmosphere (client note relayed by JoJo 2026-08-13: "they mentioned
+   a midnight purple"). The night itself is violet: background, fog and shadows all
+   carry it, so the amber candles sit inside purple air instead of brown murk. */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0A0716);
+scene.fog = new THREE.FogExp2(0x1C1140, 0.019);   // the haze itself carries the purple
+
+/* fov 40 is a ~35mm lens: default-wide fovs are the "game demo" look. Near/far kept
+   TIGHT because a sloppy frustum destroys depth precision and GTAO bands visibly. */
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.3, 140);
+camera.position.set(0, 6.2, 24);
+
+/* the window plane: the virtual hall begins where the real wall stands */
+const WINZ = DIMS.Z0 + 4;
+function applyPortal() {
+  const aspect = innerWidth / innerHeight;
+  const winW = WALL_H * aspect;              // the projector fills the wall, so the
+  const k = camera.near / EYE_D;             // window aspect IS the output aspect
+  camera.projectionMatrix.makePerspective(
+    -winW / 2 * k, winW / 2 * k,
+    (WALL_H - EYE_H) * k, -EYE_H * k,
+    camera.near, camera.far);
+  camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+}
+if (PORTAL) applyPortal();
+
+/* ---------- environment ---------- */
+function buildEnvironment() {
+  const env = new THREE.Scene();
+  const g = new THREE.BoxGeometry(1, 1, 1);
+  g.deleteAttribute('uv');
+  const shell = new THREE.Mesh(g, new THREE.MeshStandardMaterial({
+    side: THREE.BackSide, color: 0x0A0810, roughness: 1 }));
+  shell.scale.setScalar(46); env.add(shell);
+  const panel = (x, y, z, sx, sy, sz, color, intensity) => {
+    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({
+      color: 0x000000, emissive: new THREE.Color(color), emissiveIntensity: intensity }));
+    m.position.set(x, y, z); m.scale.set(sx, sy, sz); env.add(m);
+  };
+  panel(-16, 6, 0, 0.6, 11, 24, C.amber, 6);
+  panel(16, 6, 0, 0.6, 11, 24, C.amber, 5);
+  panel(0, 17, -10, 22, 0.6, 14, C.amber, 3);
+  panel(0, 2, 18, 20, 6, 0.6, C.rose, 1.4);
+  // a COOL source, or every metal reflects nothing but amber and the whole render
+  // collapses to one hue, which is the fastest way to look cheap
+  panel(0, 22, 6, 24, 0.6, 16, 0x7B5FC8, 2.4);   // violet overhead, so metals reflect the night
+  panel(-16, 15, -18, 0.6, 9, 18, C.moon, 1.6);
+  return env;
+}
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(buildEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.42;
+
+/* ---------- generated textures: wood, rug, portraits ----------
+   The manor look lives in material variety. All procedural, nothing to download. */
+function makeWoodTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#241610'; g.fillRect(0, 0, 256, 256);
+  for (let p = 0; p < 8; p++) {                        // planks
+    const y = p * 32;
+    g.fillStyle = p % 2 ? '#281911' : '#20130D';
+    g.fillRect(0, y, 256, 31);
+    g.strokeStyle = 'rgba(0,0,0,0.5)'; g.lineWidth = 1.4;
+    g.beginPath(); g.moveTo(0, y + 31.5); g.lineTo(256, y + 31.5); g.stroke();
+    for (let i = 0; i < 40; i++) {                     // grain
+      g.strokeStyle = `rgba(${14 + Math.random() * 26 | 0},${9 + Math.random() * 14 | 0},6,0.25)`;
+      const gy = y + 3 + Math.random() * 26;
+      g.beginPath(); g.moveTo(Math.random() * 256, gy);
+      g.lineTo(Math.random() * 256, gy + (Math.random() - 0.5) * 3); g.stroke();
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+function makeRugTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 1024;
+  const g = c.getContext('2d');
+  g.fillStyle = '#3C0B14'; g.fillRect(0, 0, 512, 1024);          // oxblood field
+  const border = (inset, w, col) => {
+    g.strokeStyle = col; g.lineWidth = w;
+    g.strokeRect(inset, inset, 512 - inset * 2, 1024 - inset * 2);
+  };
+  border(14, 6, 'rgba(200,162,74,0.8)');
+  border(30, 3, 'rgba(200,162,74,0.5)');
+  border(44, 10, 'rgba(42,16,48,0.9)');
+  border(58, 2.5, 'rgba(200,162,74,0.55)');
+  // medallion rows: diamonds and florets, dim enough to read as weave at night
+  for (let row = 0; row < 5; row++) {
+    const y = 150 + row * 180;
+    for (let col = 0; col < 3; col++) {
+      const x = 128 + col * 128;
+      g.strokeStyle = 'rgba(200,162,74,0.45)'; g.lineWidth = 2.5;
+      g.beginPath();
+      g.moveTo(x, y - 52); g.lineTo(x + 44, y); g.lineTo(x, y + 52); g.lineTo(x - 44, y);
+      g.closePath(); g.stroke();
+      g.strokeStyle = 'rgba(122,68,90,0.65)';
+      g.beginPath(); g.arc(x, y, 20, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = 'rgba(233,169,184,0.30)';
+      g.beginPath(); g.arc(x, y, 6, 0, Math.PI * 2); g.fill();
+    }
+  }
+  for (let i = 0; i < 2600; i++) {                     // weave noise
+    g.fillStyle = `rgba(0,0,0,${0.04 + Math.random() * 0.08})`;
+    g.fillRect(Math.random() * 512, Math.random() * 1024, 2, 1);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function makePortraitTexture(seed) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 172;
+  const g = c.getContext('2d');
+  g.fillStyle = '#100A0E'; g.fillRect(0, 0, 128, 172);
+  // the sitter is a SUGGESTION: a pale oval and shoulders under heavy varnish.
+  // Anything more drawn would read as bad art; this reads as an old dark painting.
+  const cx = 64 + ((seed * 37) % 11) - 5, cy = 62 + ((seed * 53) % 9) - 4;
+  const head = g.createRadialGradient(cx, cy, 2, cx, cy, 26);
+  head.addColorStop(0, 'rgba(196,168,140,0.34)');
+  head.addColorStop(0.6, 'rgba(150,122,100,0.16)');
+  head.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = head;
+  g.beginPath(); g.ellipse(cx, cy, 20, 26, 0, 0, Math.PI * 2); g.fill();
+  const sh = g.createLinearGradient(0, cy + 24, 0, 172);
+  sh.addColorStop(0, 'rgba(96,74,80,0.30)');
+  sh.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = sh;
+  g.beginPath(); g.ellipse(cx, cy + 62, 44, 40, 0, Math.PI, 0); g.fill();
+  const vin = g.createRadialGradient(64, 80, 30, 64, 86, 120);
+  vin.addColorStop(0, 'rgba(0,0,0,0)');
+  vin.addColorStop(1, 'rgba(0,0,0,0.78)');
+  g.fillStyle = vin; g.fillRect(0, 0, 128, 172);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/* ---------- scanned PBR sets (CC0, Poly Haven, vendored offline) ----------
+   The "cel shaded" read came from large flat-colour surfaces under smooth light:
+   nothing for the eye to grip. Real scanned albedo + normals break it. Diffuse maps
+   are MIXR-compressed WebP; the normal and ARM maps ship as the source JPGs, because
+   lossy WebP chroma subsampling visibly corrupts normal data (deviation from rule 9a
+   noted openly, not silently). */
+const texLoader = new THREE.TextureLoader();
+function loadTex(url, { srgb = false, rx = 1, ry2 = 1 } = {}) {
+  const t = texLoader.load(url);
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(rx, ry2);
+  t.anisotropy = 8;
+  return t;
+}
+const floorDiff = loadTex('textures/compressed/dark_wooden_planks_diff_2k.webp', { srgb: true, rx: 7, ry2: 18 });
+const floorNrm  = loadTex('textures/compressed/dark_wooden_planks_nor_gl_2k.webp', { rx: 7, ry2: 18 });
+const floorArm  = loadTex('textures/compressed/dark_wooden_planks_arm_2k.webp', { rx: 7, ry2: 18 });
+/* the walls wear a GOTHIC QUATREFOIL JACQUARD (a real CC0 scan): period-correct for a
+   manor, on-brief for A Dark Night, and infinitely richer than tinted plaster */
+const wallDiff  = loadTex('textures/compressed/quatrefoil_jacquard_fabric_diff_2k.webp', { srgb: true, rx: 7, ry2: 2.4 });
+const wallNrm   = loadTex('textures/compressed/quatrefoil_jacquard_fabric_nor_gl_2k.webp', { rx: 7, ry2: 2.4 });
+const woodDiff  = loadTex('textures/compressed/dark_wood_diff_1k.webp', { srgb: true, rx: 2, ry2: 2 });
+const woodNrm2  = loadTex('textures/compressed/dark_wood_nor_gl_1k.webp', { rx: 2, ry2: 2 });
+const woodArm   = loadTex('textures/compressed/dark_wood_arm_1k.webp', { rx: 2, ry2: 2 });
+const rugDiff   = loadTex('textures/compressed/fabric_pattern_07_col_1_2k.webp', { srgb: true, rx: 2, ry2: 9 });
+const rugNrm    = loadTex('textures/compressed/fabric_pattern_07_nor_gl_2k.webp', { rx: 2, ry2: 9 });
+const velDiff   = loadTex('textures/compressed/velour_velvet_diff_1k.webp', { srgb: true, rx: 3, ry2: 3 });
+const velNrm    = loadTex('textures/compressed/velour_velvet_nor_gl_1k.webp', { rx: 3, ry2: 3 });
+/* the plaster normal does double duty: tooth for the stone, and a faint hammered
+   break-up on the metals so their specular band stops running laser-clean */
+const stoneNrm  = loadTex('textures/compressed/painted_plaster_wall_nor_gl_1k.webp', { rx: 3, ry2: 3 });
+const metalNrm  = loadTex('textures/compressed/painted_plaster_wall_nor_gl_1k.webp', { rx: 7, ry2: 7 });
+
+/* ---------- materials ---------- */
+const MAT = {
+  gold:   new THREE.MeshPhysicalMaterial({ color: C.gold, metalness: 1, roughness: 0.24, normalMap: metalNrm, normalScale: new THREE.Vector2(0.22, 0.22), side: THREE.DoubleSide }),
+  goldHi: new THREE.MeshPhysicalMaterial({ color: C.goldHi, metalness: 1, roughness: 0.14, normalMap: metalNrm, normalScale: new THREE.Vector2(0.16, 0.16), side: THREE.DoubleSide }),
+  stone:  new THREE.MeshPhysicalMaterial({ color: C.stone, metalness: 0, roughness: 0.86, side: THREE.DoubleSide }),
+  // cool pale stone for tracery, surrounds and the frontispiece
+  stoneLight: new THREE.MeshPhysicalMaterial({ color: 0x6E6678, metalness: 0, roughness: 0.8, normalMap: stoneNrm, normalScale: new THREE.Vector2(0.85, 0.85), side: THREE.DoubleSide }),
+  // plaster carries the scan; the purple lives in the TINT over it, so the wall has
+  // grain and patching instead of one flat "cel" colour
+  wall:   new THREE.MeshPhysicalMaterial({ map: wallDiff, color: 0x4A3A62, normalMap: wallNrm,
+    normalScale: new THREE.Vector2(1.0, 1.0), metalness: 0, roughness: 0.85, side: THREE.DoubleSide }),
+  // manor wood: real dark-wood scan on beams, balconies, posts, furniture, the door
+  woodDark: new THREE.MeshPhysicalMaterial({ map: woodDiff, color: 0x6E5E52, normalMap: woodNrm2,
+    normalScale: new THREE.Vector2(1.0, 1.0), roughnessMap: woodArm, roughness: 1.0,
+    metalness: 0, side: THREE.DoubleSide }),
+  door:   new THREE.MeshPhysicalMaterial({ map: woodDiff, color: 0xA08A78, normalMap: woodNrm2,
+    normalScale: new THREE.Vector2(1.15, 1.15), roughnessMap: woodArm, roughness: 1.0,
+    metalness: 0, side: THREE.DoubleSide }),
+  // pewter for the chandeliers and the door ironwork, per the reference's dark metal
+  iron:   new THREE.MeshPhysicalMaterial({ color: 0x4A4550, metalness: 0.9, roughness: 0.38, normalMap: metalNrm, normalScale: new THREE.Vector2(0.32, 0.32), side: THREE.DoubleSide }),
+  // REAL velour scan under the plum tint: pile direction and nap, not flat colour
+  velvet: new THREE.MeshPhysicalMaterial({
+    map: velDiff, color: 0x6A4A6E, normalMap: velNrm, normalScale: new THREE.Vector2(1.05, 1.05),
+    roughness: 0.95, metalness: 0,
+    sheen: 0.9, sheenRoughness: 0.35, sheenColor: new THREE.Color(0xE8A98A), side: THREE.DoubleSide }),
+  dark:   new THREE.MeshPhysicalMaterial({ map: woodDiff, color: 0x35291F, normalMap: woodNrm2, normalScale: new THREE.Vector2(0.5, 0.5), metalness: 0, roughness: 0.8, side: THREE.DoubleSide }),
+  wax:    new THREE.MeshPhysicalMaterial({ color: 0xEDE4D3, roughness: 0.55, metalness: 0 }),
+  silver: new THREE.MeshPhysicalMaterial({ color: 0xC9CDD4, metalness: 1, roughness: 0.28, normalMap: metalNrm, normalScale: new THREE.Vector2(0.2, 0.2), side: THREE.DoubleSide }),
+  moonGlow: new THREE.MeshStandardMaterial({ color: 0x000000, emissive: new THREE.Color(0xC7C4E4), emissiveIntensity: 0.9, side: THREE.DoubleSide }),
+  portraitTex: [0, 1, 2, 3].map(makePortraitTexture),
+  /* the alpha ramp that makes a light shaft read as AIR and not as a solid cone:
+     opaque in the window mouth, gone before it reaches the floor */
+  shaftFade: (() => {
+    const c = document.createElement('canvas');
+    c.width = 4; c.height = 256;
+    const g = c.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0.00, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.35, 'rgba(255,255,255,0.45)');
+    grad.addColorStop(0.75, 'rgba(255,255,255,0.10)');
+    grad.addColorStop(1.00, 'rgba(255,255,255,0)');
+    g.fillStyle = grad; g.fillRect(0, 0, 4, 256);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  })(),
+  /* THE SPONSOR BOARDS: the two big gilt frames flanking the grand door. JoJo's call
+     2026-08-13 - they were dark portraits doing nothing; they are the logo positions.
+     Drawn as type immediately, repainted with the real gold wordmark when it loads. */
+  logoTex: [
+    { name: 'MIXR', src: 'textures/brand/compressed/mixr_logo.webp', tone: 'flat', w: 486 },   // matched to the ENDLESS RIVER mark's visual weight, not to its raw width
+    /* ENDLESS RIVER's real mark is cyan and pink with a hard black offset shadow, which
+       next to gilt frames and candlelight would read as a sticker someone left on the
+       wall (JoJo: "his logo will stick out like a sore thumb, render it into the room's
+       gold"). It is NOT flat-filled: a source-in fill would collapse the wordmark and its
+       shadow into one gold blob and throw away the thing that makes the mark recognisable.
+       Instead the two letter colours map to two golds and the shadow to a dark bronze, so
+       the construction survives the recolour. */
+    { name: 'ENDLESS RIVER', src: 'textures/brand/compressed/endless_river.webp', tone: 'two', w: 566 },   // the source PNG is 1080 square with the mark inset, so this is bigger than it looks
+  ].map(spec => {
+    const c = document.createElement('canvas');
+    c.width = 640; c.height = 860;
+    const g = c.getContext('2d');
+    const paint = (img) => {
+      const bg = g.createLinearGradient(0, 0, 0, 860);
+      bg.addColorStop(0, '#241432'); bg.addColorStop(1, '#160C20');
+      g.fillStyle = bg; g.fillRect(0, 0, 640, 860);
+      g.strokeStyle = 'rgba(200,162,74,0.35)'; g.lineWidth = 5;
+      g.strokeRect(34, 34, 572, 792);
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      if (img) {
+        const lw = spec.w, lh = lw * (img.height / img.width);
+        g.drawImage(img, 320 - lw / 2, 430 - lh / 2, lw, lh);
+      } else {
+        // placeholder type until the real mark decodes, so the board is never blank
+        const serif = "'Cormorant Garamond','Playfair Display',Georgia,serif";
+        try { g.letterSpacing = '10px'; } catch {}
+        g.font = `600 ${spec.name === 'MIXR' ? 96 : 58}px ${serif}`;
+        g.fillStyle = '#C8A24A';
+        if (spec.name === 'ENDLESS RIVER') {
+          g.fillText('ENDLESS', 320, 396); g.fillText('RIVER', 320, 470);
+        } else g.fillText(spec.name, 320, 430);
+        try { g.letterSpacing = '0px'; } catch {}
+      }
+      // a soft candle-catch across the board so it is never a flat card
+      const sh = g.createLinearGradient(0, 0, 640, 860);
+      sh.addColorStop(0, 'rgba(255,214,150,0.07)');
+      sh.addColorStop(0.5, 'rgba(255,255,255,0)');
+      g.fillStyle = sh; g.fillRect(0, 0, 640, 860);
+    };
+    paint(null);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+
+    const im = new Image();
+    im.onload = () => {
+      const off = document.createElement('canvas');
+      off.width = im.width; off.height = im.height;
+      const og = off.getContext('2d', { willReadFrequently: true });
+      og.drawImage(im, 0, 0);
+      if (spec.tone === 'flat') {
+        og.globalCompositeOperation = 'source-in';
+        og.fillStyle = '#D8B25A';
+        og.fillRect(0, 0, off.width, off.height);
+      } else {
+        /* Classify by SATURATION, not by matching the two brand colours exactly. The
+           letterforms are saturated, the shadow is not, and antialiased edge pixels sit
+           between the two, so a soft ramp on saturation recolours the edges correctly
+           instead of leaving a cyan fringe around every letter. */
+        const d = og.getImageData(0, 0, off.width, off.height), p = d.data;
+        const HI = [0xEC, 0xCE, 0x84];   // lit gold, the upper word
+        const LO = [0xB4, 0x89, 0x38];   // deeper gold, the lower word
+        const SH = [0x1B, 0x12, 0x07];   // bronze-black, the offset shadow
+        for (let i = 0; i < p.length; i += 4) {
+          if (p[i + 3] < 6) continue;
+          const r = p[i], gg = p[i + 1], b = p[i + 2];
+          const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b);
+          const sat = mx ? (mx - mn) / mx : 0;
+          const k = Math.min(1, Math.max(0, (sat - 0.12) / 0.26));
+          const L = r < 180 ? HI : LO;          // cyan word lighter, pink word deeper
+          p[i]     = SH[0] + (L[0] - SH[0]) * k;
+          p[i + 1] = SH[1] + (L[1] - SH[1]) * k;
+          p[i + 2] = SH[2] + (L[2] - SH[2]) * k;
+        }
+        og.putImageData(d, 0, 0);
+      }
+      paint(off);
+      t.needsUpdate = true;
+    };
+    im.onerror = () => console.warn('logo failed to load: ' + spec.src);
+    im.src = spec.src;
+    return t;
+  }),
+};
+/* per-material environment response (research panel): a global 1.0 is the plastic
+   look. Metals reflect most, plaster least. */
+MAT.gold.envMapIntensity = 0.6; MAT.goldHi.envMapIntensity = 0.6;
+MAT.silver.envMapIntensity = 0.6; MAT.iron.envMapIntensity = 0.55;
+MAT.woodDark.envMapIntensity = 0.35; MAT.door.envMapIntensity = 0.35;
+MAT.wall.envMapIntensity = 0.25; MAT.stone.envMapIntensity = 0.25;
+MAT.stoneLight.envMapIntensity = 0.3; MAT.velvet.envMapIntensity = 0.3;
+
+/* ---------- the room ---------- */
+const { hall, wallFrames, candleSlots, herald, beams, ambient, standLights, sofaStandins, sponsorBoards } = buildHall(MAT, C);
+const { W, Z0, FAR_Z, BAY } = DIMS;
+
+/* Chandeliers: THREE ornate pewter fittings straight down the axis, per the reference.
+   The room is formal now, so the centreline is where they belong; their sizes descend
+   with distance so the row reads as depth, not repetition. */
+const { CEIL } = DIMS;
+const keyLights = [];
+const chandeliers = [];
+/* TWO chandeliers, not three (JoJo: "is 3 chandeliers too excessive?" - from the
+   straight camera they stacked into one cluttered column). One hero over the lounge,
+   one modest fitting deep by the door for depth; the gap between them lets the
+   ceiling and the coffers actually read. */
+/* ONE fitting, not two. The second hung at z=-30 on the same centre line, and from a
+   dead-centre camera its projected box sat ENTIRELY inside the near one: measured
+   [552,183,632,319] nested inside [513,11,711,328]. It was paying for 5.7k vertices, a
+   point light and 8 flame sprites to render zero visible pixels. Its ILLUMINATION was
+   doing real work though, so that is kept below as a bare light with no geometry. */
+[[Z0 - 28, 2.7, 130]].forEach(([z, r, power], i) => {
+  /* Each hangs from a GROUP pivoted at the ceiling, so rotating the group swings the
+     whole fitting, its candles and its light together, like a real one on a chain. */
+  const g = new THREE.Group();
+  g.name = 'chandelier-' + i;
+  g.position.set(0, CEIL, z);
+  hall.add(g);
+
+  /* the far fitting hangs HIGHER so it clears the sightline to the herald plaque */
+  // hung higher so the near fitting sits fully ABOVE the frame edge (JoJo: it was
+  // poking through the top); geometry, not camera, is what clears it for good
+  const y = (11.9 + i * 1.1) - CEIL;           // body height, local to the pivot
+  const l = new THREE.PointLight(C.amber, power, 70, 2);
+  l.position.set(0, y, 0);
+  g.add(l);
+  keyLights.push({ light: l, power });
+
+  const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, -y + 0.2, 6), MAT.iron);
+  chain.name = 'chain';
+  chain.position.set(0, y / 2 + 0.1, 0); g.add(chain);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 2.6, 8), MAT.iron);
+  stem.position.set(0, y - 0.9, 0); g.add(stem);
+  const finial = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), MAT.iron);
+  finial.position.set(0, y - 2.2, 0); g.add(finial);
+
+  const local = [];
+  /* three tiers of rings, candles on every tier: the ornate multi-storey fittings of
+     the reference, in dark metal so the flames read against them */
+  [[r, 0, 12], [r * 0.68, -0.85, 8], [r * 0.38, -1.6, 5]].forEach(([rr, dy, n]) => {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, 0.065, 8, 40), MAT.iron);
+    ring.rotation.x = Math.PI / 2; ring.position.set(0, y + dy, 0); g.add(ring);
+    for (let k = 0; k < 6; k++) {              // S-arms out to the ring
+      const a = (k / 6) * Math.PI * 2;
+      const arm = new THREE.Mesh(new THREE.TorusGeometry(rr * 0.5, 0.035, 6, 14, Math.PI * 0.9), MAT.iron);
+      arm.position.set(Math.cos(a) * rr * 0.5, y + dy, Math.sin(a) * rr * 0.5);
+      arm.rotation.set(Math.PI / 2, 0, a + Math.PI / 2);
+      g.add(arm);
+    }
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + dy;    // each tier phased differently
+      const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.06, 0.1, 8), MAT.iron);
+      cup.position.set(Math.cos(a) * rr, y + dy + 0.08, Math.sin(a) * rr); g.add(cup);
+      const wx = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.34, 8), MAT.wax);
+      wx.position.set(Math.cos(a) * rr, y + dy + 0.3, Math.sin(a) * rr); g.add(wx);
+      local.push(new THREE.Vector3(Math.cos(a) * rr, y + dy + 0.55, Math.sin(a) * rr));
+    }
+  });
+  chandeliers.push({
+    group: g, local, y, seed: i * 2.7,
+    ang: new THREE.Vector2(), vel: new THREE.Vector2(),
+  });
+});
+
+/* ---------- FILL THE CANDLES THE CAMERA CAN SEE, FIRST ----------
+   Audited, not assumed: of 96 votive slots only 32 project inside the frame, and under
+   the plain seeded shuffle 18 of the first 30 guests were lighting a candle nobody could
+   ever look at. That is the activation's whole payoff quietly failing for two people in
+   three: they join, they light, they look up at the wall, and nothing happened.
+
+   The shuffle itself is still wanted, so guests never fill a neat row and a reload maps
+   the same guest to the same candle. This is a STABLE PARTITION on top of it: in-frame
+   slots keep their shuffled order and simply come first. Off-frame slots are not thrown
+   away, because a full room still needs somewhere to put guest 40 and the sills do carry
+   light into the bake. */
+(() => {
+  /* Against a PURPOSE-BUILT camera at the steady pose, not the live one. `camera` is
+     positioned inside frame(), so at module scope it is still sitting at its constructor
+     pose looking down -Z, and partitioning against that scored the wrong 32 slots: the
+     first pass shipped and still left 14 of the first 30 guests invisible. It also should
+     not be scored against a drifting frame, since the breathing camera moves the edges
+     slightly and a slot must not change category between frames. */
+  const probe = camera.clone();
+  if (PORTAL) { probe.position.set(0, EYE_H, WINZ + EYE_D); probe.rotation.set(0, 0, 0); }
+  else { probe.position.set(0, 4.6, 2); probe.lookAt(0, 5.6, FAR_Z); }
+  probe.updateMatrixWorld(true);
+  probe.updateProjectionMatrix();
+  const seen = p => {
+    const v = p.clone().project(probe);
+    // a small inset, so a candle half off the edge does not count as a payoff
+    return v.z < 1 && Math.abs(v.x) <= 0.96 && Math.abs(v.y) <= 0.96;
+  };
+  const inFrame = candleSlots.filter(seen);
+  const off = candleSlots.filter(p => !seen(p));
+  candleSlots.length = 0;
+  candleSlots.push(...inFrame, ...off);
+  console.log('candles: ' + inFrame.length + ' of ' + (inFrame.length + off.length) + ' in frame, filled first');
+})();
+
+/* the fixed lights that actually carry the illumination */
+const fill = new THREE.PointLight(C.rose, 7, 30, 2);
+fill.position.set(0, 5, 3); hall.add(fill);
+/* The deleted second chandelier's LIGHT, kept without its geometry. The fitting itself
+   was invisible behind the near one, but it was the only warm source over the far third
+   of the hall, and dropping it outright would have darkened the door and the statues. A
+   bare light is the honest version of a fixture you cannot see. */
+const farKey = new THREE.PointLight(C.amber, 62, 70, 2);
+farKey.position.set(0, 11.0, -30); hall.add(farKey);
+/* plum sky, so candlelight alone never turns the shadows brown */
+/* dropped from 0.13: the BAKE now carries the ambient term WITH ambient occlusion in
+   it, so leaving the hemisphere where it was would double-count the fill and flatten
+   exactly the corner darkening the bake exists to produce */
+hall.add(new THREE.HemisphereLight(0x4A2E6E, 0x0A0714, 0.05));
+/* two symmetric moon washes off the window walls: the formal room lights evenly */
+for (const side of [-1, 1]) {
+  const cool = new THREE.PointLight(C.moon, 16, 55, 2);
+  cool.position.set(side * 10, 11.5, -12);
+  hall.add(cool);
+}
+/* every candle cluster lights its own stand: a candelabrum dark under six flames was
+   the tell-hunt's third-biggest CG signature */
+for (const p of standLights) {
+  const cl = new THREE.PointLight(C.amber, 6, 9, 2);
+  cl.position.copy(p);
+  hall.add(cl);
+}
+
+/* the frontispiece glow: warm on the stone and the door, so the far wall is an arrival */
+const doorGlow = new THREE.PointLight(C.amber, 26, 40, 2);
+doorGlow.position.set(0, 6.5, FAR_Z + 6); hall.add(doorGlow);
+
+/* THE MOON KEY. One shadow-casting directional, angled through the left gallery the
+   way the reference's sun rakes its hall: window tracery and balusters print light
+   patterns on the floor, the balcony grounds itself on the wall, the settee and
+   candelabra finally SIT on something. Positioned INSIDE the room so the outer shell
+   cannot occlude it; only what stands between it and the floor casts. */
+const moonKey = new THREE.DirectionalLight(C.moon, 1.85);
+moonKey.position.set(-11.5, 13.5, -8);
+moonKey.target.position.set(8, 0, -16);
+moonKey.castShadow = true;
+moonKey.shadow.mapSize.set(LITE ? 1024 : 2048, LITE ? 1024 : 2048);
+moonKey.shadow.camera.near = 0.5;
+moonKey.shadow.camera.far = 60;
+moonKey.shadow.camera.left = -26; moonKey.shadow.camera.right = 26;
+moonKey.shadow.camera.top = 20;  moonKey.shadow.camera.bottom = -20;
+moonKey.shadow.bias = -0.0006;
+moonKey.shadow.radius = 5;
+hall.add(moonKey); hall.add(moonKey.target);
+
+/* A SECOND MOON RAKE off the right gallery, deliberately NOT shadow casting.
+   The room is symmetric architecture, so a single rake from the left left the right
+   half reading flat and unlit while the left carried all the tracery. This fills the
+   right side with the same cool wash. It stays shadowless on purpose: a second
+   2048 shadow map is real cost on the venue laptop, and two sets of window patterns
+   crossing on the floor would read as a lighting bug rather than as moonlight. */
+const moonFill = new THREE.DirectionalLight(C.moon, 0.85);
+moonFill.position.set(12.5, 12.0, -14);
+moonFill.target.position.set(-6, 0, -26);
+hall.add(moonFill); hall.add(moonFill.target);
+
+/* every solid casts and receives; glass panes and glow sprites must not */
+hall.traverse(o => {
+  if (o.isMesh) {
+    const glass = o.material === MAT.moonGlow;
+    o.castShadow = !glass;
+    o.receiveShadow = !glass;
+  }
+});
+
+/* chandeliers cast no moon shadow: physically dubious and it lands as a stain */
+chandeliers.forEach(ch => ch.group.traverse(o => { if (o.isMesh) o.castShadow = false; }));
+
+/* AREA LIGHTS in the ground windows (the research panel's "archviz signature"): a
+   window is a soft rectangular source, and four of them give the walls and furniture
+   the broad directional wash that point lights cannot. No shadows from these; the
+   moon key carries the shadowing. ?norect=1 is the venue escape hatch. */
+const NORECT = qs.get('norect') === '1';
+if (!NORECT) {
+  RectAreaLightUniformsLib.init();
+  for (const side of [-1, 1])
+    for (const bi of [1, 2]) {
+      const ral = new THREE.RectAreaLight(C.moon, 1.7, 3.1, 4.8);
+      ral.position.set(side * (W - 0.45), 4.2, Z0 - bi * BAY - BAY / 2);
+      ral.lookAt(side * (W - 8), 1.0, Z0 - bi * BAY - BAY / 2 + 0.5);
+      hall.add(ral);
+    }
+}
+
+scene.add(hall);
+
+/* ---------- the floor: dark oak and a woven rug, NOT a mirror ----------
+   JoJo: "the light reflections look kind of weird". They did: the full mirrored-clone
+   floor read as CG water. A manor floor is waxed wood: a broad specular sheen from
+   clearcoat, no mirror image. The clone is deleted outright, which also halves the
+   scene's draw cost. */
+/* Normal maps from the same canvases: a Sobel pass over luminance turns the plank
+   lines and weave into surface relief, which is what makes raking candlelight and the
+   moon key actually GRIP the materials instead of sliding over flat colour. */
+function normalFromCanvas(srcTex, strength = 1.2) {
+  const src = srcTex.image;
+  const w = src.width, h = src.height;
+  const sctx = src.getContext('2d');
+  const d = sctx.getImageData(0, 0, w, h).data;
+  const lum = (x, y) => {
+    x = (x + w) % w; y = (y + h) % h;
+    const i = (y * w + x) * 4;
+    return (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) / 255;
+  };
+  const out = document.createElement('canvas');
+  out.width = w; out.height = h;
+  const octx = out.getContext('2d');
+  const img = octx.createImageData(w, h);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const dx = (lum(x + 1, y) - lum(x - 1, y)) * strength;
+      const dy = (lum(x, y + 1) - lum(x, y - 1)) * strength;
+      const inv = 1 / Math.hypot(dx, dy, 1);
+      const i = (y * w + x) * 4;
+      img.data[i] = (-dx * inv * 0.5 + 0.5) * 255;
+      img.data[i + 1] = (-dy * inv * 0.5 + 0.5) * 255;
+      img.data[i + 2] = inv * 255;
+      img.data[i + 3] = 255;
+    }
+  octx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(out);
+  t.wrapS = srcTex.wrapS; t.wrapT = srcTex.wrapT;
+  t.repeat.copy(srcTex.repeat);
+  return t;
+}
+
+/* the floor wears the real scan: worn dark oak, its own roughness variation from the
+   ARM map (three.js reads roughness from G, exactly how Poly Haven packs it) */
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(2 * DIMS.W + 2, 70),
+  new THREE.MeshPhysicalMaterial({
+    map: floorDiff, color: 0x9A8A7E, roughness: 0.62, roughnessMap: floorArm,
+    metalness: 0, normalMap: floorNrm, normalScale: new THREE.Vector2(1.35, 1.35),
+    clearcoat: 0.55, clearcoatRoughness: 0.12, envMapIntensity: 0.55, side: THREE.DoubleSide }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.position.set(0, 0, -13);
+floor.receiveShadow = true;
+scene.add(floor);
+
+/* the great rug down the axis, oxblood and gold, matte like cloth should be */
+const rugTex = makeRugTexture();
+const rug = new THREE.Mesh(
+  /* 43.9 long, not 40. The runner ended at z=-32 while the door steps start at z=-35.85,
+     so 3.85m of bare board sat in the dead centre of the shot, exactly where the eye is
+     being led. One quad, no new mesh. */
+  new THREE.PlaneGeometry(7.2, 43.9),
+  new THREE.MeshPhysicalMaterial({
+    // a REAL woven scan, tinted oxblood: the procedural canvas rug read as printed paper
+    map: rugDiff, color: 0x552028, roughness: 0.95, metalness: 0,
+    normalMap: rugNrm, normalScale: new THREE.Vector2(1.1, 1.1),
+    // sheen nearly off: at 0.3 the grazing camera coated the whole rug salmon
+    sheen: 0.1, sheenRoughness: 0.85, sheenColor: new THREE.Color(C.rose), side: THREE.DoubleSide }),
+);
+rug.rotation.x = -Math.PI / 2;
+rug.position.set(0, 0.02, -13.95);   // so the far end lands on the bottom step nose
+rug.receiveShadow = true;
+scene.add(rug);
+
+/* ---------- candles ---------- */
+/* ---------- REAL MODELLED FURNITURE ----------
+   The single biggest quality step in this build. Everything above builds the ARCHITECTURE
+   out of primitives, which is correct: walls, beams, coffers and window surrounds really
+   are boxes and tori, and a box wall reads as a wall. Furniture does not survive the same
+   treatment. A sofa made of five rounded boxes has the wrong SILHOUETTE, and silhouette
+   is read before shading, which is why no amount of grading ever fixed it.
+
+   These are CC0 assets with real topology and real PBR maps, shipped local. The
+   primitives stay in the scene as stand-ins and are hidden only once a model actually
+   lands, so a machine that loses the models folder still shows a furnished room. */
+async function dressRoom() {
+  const jobs = [];
+  /* ?nomodels=1 runs the room on the primitive stand-ins alone. It is the honest
+     before/after switch AND the venue fallback: if the models folder ever goes missing
+     on the projector machine, this is the mode it degrades into, so it has to stay
+     working rather than being a debug flag that rots. */
+  if (qs.get('nomodels') === '1') return { total: 0, failed: 0, skipped: true };
+
+  /* The two chandeliers. Keep OUR chain and point light, swap the body, and hand the
+     glow over to the asset's own lamp material.
+
+     The first attempt kept the primitive's 25 sprite flames and only replaced the body.
+     Cropped in, that was plainly wrong twice over: the sprites sat at the OLD cup
+     positions, so they floated in a blob with no fitting under them, and the real body
+     rendered near black because the only light in range was the point light buried
+     inside it, lighting nothing but its own interior. The asset ships a
+     `..._lamp` material carrying an amber emissiveFactor, which is the fixture telling
+     us where its own flames are. Driving that beats scattering sprites near it. */
+  chandeliers.forEach((ch, i) => {
+    const prim = ch.group.children.filter(o => o.isMesh && o.name !== 'chain');
+    /* WIDTH AND BOTTOM EDGE, both explicit. The first pass fitted 4.4m wide and pinned
+       the TOP, which hung the fixture down to y=6.6 and cropped it against the top of
+       frame, so the hero shot opened on the underside of a lamp. Sized to read as a
+       fixture in the room, and hung so its bottom edge clears the far arch. */
+    /* SIZED BY HEIGHT, HUNG BY BOTTOM EDGE, both solved against the camera rather than
+       chosen by eye. With the camera at y=4.64 and the top-of-frame ray 21.3 degrees up,
+       the tallest point visible at distance d is 4.64 + 0.390d. The hero used to hang at
+       z=-7 where that ceiling is 8.12m, so a fitting on a 15.2m ceiling could not be in
+       shot at ANY size: its projected box ran 1512px off the top of a 982px frame and the
+       only chandelier ever visible was the far one. Solved: at z=-18 the limit is 12.41m,
+       so a 3.9m fitting hung with its bottom at 7.8 spans screen y 48..312, fully in
+       frame and clear of the herald frame which starts at 316. */
+    const height = i === 0 ? 3.9 : 2.8;
+    const bottom = (i === 0 ? 7.8 : 9.6) - CEIL;      // local to the ceiling pivot
+    jobs.push(place('chandelier', {
+      parent: ch.group, fit: { axis: 'y', metres: height },
+      // a light living INSIDE the fitting would shadow the whole room black through it
+      cast: false, envMapIntensity: 0.9,
+      onEach: o => {
+        hangBottomAt(o, bottom);
+        for (const p of prim) p.visible = false;
+        /* THE CHAIN HAS TO REACH THE FITTING. It was built for the primitive body at a
+           hardcoded height, so once the model was sized and hung by its bottom edge the
+           chain stopped 1.23m short and the chandelier floated unattached under it. That
+           gap opens further as the fitting sways, because a swinging chain lifts its own
+           lowest point. Derive it: the chain spans the ceiling (local 0) down to the
+           fitted top, which is exactly bottom + height because we fit on the y axis. */
+        const chain = ch.group.children.find(c2 => c2.name === 'chain');
+        if (chain) {
+          const top = bottom + height, len = Math.max(0.2, -top);
+          chain.geometry.dispose();
+          chain.geometry = new THREE.CylinderGeometry(0.05, 0.05, len, 6);
+          chain.position.set(0, top + len / 2, 0);
+        }
+        ch.local.length = 0;              // no sprite flames at the OLD cup positions
+        o.traverse(m => {
+          if (!m.isMesh) return;
+          for (const mat of (Array.isArray(m.material) ? m.material : [m.material])) {
+            /* THE GLASS GLOWS TOO. This asset is an enclosed LANTERN: its lamp geometry
+               sits at y 9.11..9.60 entirely inside the body, and the 12 flame sprites
+               derived from it end up a 0.15m cluster behind the panels where nothing can
+               see them. So the fitting read as a dark bronze ornament hanging in a room
+               whose entire subject is candlelight. Real lanterns are read by their LIT
+               PANELS, not by a visible wick, so the glass carries the amber and the
+               whole shade comes alive. */
+            if (mat && /glass/i.test(mat.name || '')) {
+              mat.emissive = new THREE.Color(C.amber);
+              mat.emissiveIntensity = 0.85;
+              (ch.glass = ch.glass || []).push(mat);
+              continue;
+            }
+            if (!mat || !/lamp/i.test(mat.name || '')) continue;
+            /* Emissive comes out of glTF at 1.0, which is a flat cream card. Push it
+               well past 1 so it survives tone mapping and trips the bloom threshold,
+               the way a real flame does against a dark room. */
+            mat.emissiveIntensity = 5.0;
+            mat.toneMapped = false;
+            (ch.lamps = ch.lamps || []).push(mat);
+          }
+        });
+        /* Sprite flames back ON THE ASSET'S OWN LAMPS. Dropping them entirely cost the
+           room its warmth, because those sprites were carrying the bloom that made the
+           fitting read as lit rather than as a dark ornament. The lamp material's own
+           bounding box says where they belong, so they are never guessed again. */
+        const lb = partBox(o, /lamp/i);
+        if (lb) {
+          const c = lb.getCenter(new THREE.Vector3());
+          const s = lb.getSize(new THREE.Vector3());
+          const rr = Math.max(s.x, s.z) * 0.34;
+          const n = i === 0 ? 12 : 8;
+          for (let k = 0; k < n; k++) {
+            const a = (k / n) * Math.PI * 2;
+            ch.local.push(new THREE.Vector3(c.x + Math.cos(a) * rr, c.y + s.y * 0.18,
+                                            c.z + Math.sin(a) * rr));
+          }
+        }
+        /* the point light belongs at the LAMP ring, not the body centre, so it throws
+           light down onto the arms and up onto the coffers instead of into its own shell */
+        const l = ch.group.children.find(c2 => c2.isLight);
+        if (l && lb) l.position.y = lb.getCenter(new THREE.Vector3()).y;
+      },
+    }));
+  });
+
+  /* the sofas, at the exact footprints the primitives held so the layout is unchanged */
+  for (const s of sofaStandins) {
+    jobs.push(place('sofa', {
+      parent: hall, position: [s.x, 0, s.z], rotationY: s.ry,
+      fit: { axis: 'auto', metres: s.len }, seatTo: 0.03, envMapIntensity: 0.45,
+      onEach: () => { s.group.visible = false; },
+    }));
+  }
+
+  /* THE STATUES, brought forward and made much taller (JoJo: "what are those next to
+     the door? statues? can we bring those up and make them taller").
+
+     They were 3.4m tall parked at z=-36.6, flat against the far wall, where they
+     occupied 1.7 percent of the frame and read as ornaments on a shelf. Two things were
+     wrong. First the depth: the floor from z=-16 to -32 held almost nothing, so the one
+     piece of real sculpted geometry in the room was hiding in the busiest band instead
+     of anchoring the empty one. Second the size: this hall is 15.2m to the ceiling, and
+     nothing under about 5m reads as architecture at that scale.
+
+     A pedestal, not a box. The urn plinths nearby are single rounded boxes and they are
+     the cheapest-looking thing in the frame, so these get a real profile: a spreading
+     base, a die, and a cap that oversails, which is what makes stone read as stone in
+     silhouette before any texture is sampled. */
+  function pedestal(x, z, h, w, ry = 0) {
+    const g = new THREE.Group();
+    const put = (bw, bh, bd, y, mat) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), mat);
+      m.position.set(0, y, 0); m.castShadow = true; m.receiveShadow = true;
+      g.add(m);
+    };
+    /* DARK stone, not the light window-surround stone. There are eight of these now,
+       and in a room lit only by candles a pale box is the brightest thing at floor level,
+       so the cheapest geometry in the frame was also the loudest. Only the thin courses
+       catch the light, which is how real mouldings read: edges lit, faces in shadow. */
+    put(w * 1.30, h * 0.09, w * 1.30, h * 0.045, MAT.stone);        // base slab
+    put(w * 1.14, h * 0.07, w * 1.14, h * 0.125, MAT.stoneLight);   // lower torus course
+    put(w,        h * 0.66, w,        h * 0.49,  MAT.stone);        // the die
+    put(w * 1.16, h * 0.09, w * 1.16, h * 0.865, MAT.stoneLight);   // cap, oversailing
+    put(w * 1.28, h * 0.05, w * 1.28, h * 0.935, MAT.stone);        // abacus
+    g.userData.topY = h * 0.96;   // what stands on this must SIT here, not near here
+    const band = new THREE.Mesh(new THREE.BoxGeometry(w * 1.02, h * 0.02, w * 1.02), MAT.gold);
+    band.position.set(0, h * 0.80, 0); g.add(band);
+    g.position.set(x, 0, z);
+    /* Turned to match whatever stands on it. A square cap under a statue rotated 35deg
+       leaves the base corners hanging in mid air, which is what read as floating even
+       after the cap was widened: the fix is to align the plinth, not to keep widening. */
+    g.rotation.y = ry;
+    hall.add(g);
+    return g;
+  }
+  for (const side of [-1, 1]) {
+    /* SOLVED AGAINST THE SPONSOR FRAMES, not nudged by eye. The MIXR panel occupies
+       screen x 230..404 with its wordmark centred at 317. A statue is much nearer the
+       camera than the far wall, so it covers far more screen than its world offset
+       suggests: at x=5.6 it spanned 200..373 and sat straight across the mark, which is
+       the commercial payload of the entire activation. At x=8.0, z=-25 it spans
+       109..269, clear of the mark and still fully inside the frame. */
+    const px = side * 8.0, pz = -25;      // in the band that read as empty, clear of the marks
+    const PED = 1.5;   // lower and MUCH wider: a sculpture plinth, not a column
+    /* The statue is 1.477 x 1.740 x 1.564 native, so a 5.4m fit gives a 4.58 x 4.85m base.
+       On the old 2.78m cap it cantilevered off both sides and read as floating. 4.2 gives
+       a 4.87m cap, which carries it. Height comes down so it does not become a tower. */
+    const sRot = -side * 0.62;
+    pedestal(px, pz, PED, 4.2, sRot);
+    jobs.push(place('statue', {
+      parent: hall, position: [px, 0, pz], rotationY: sRot,   // turned to the aisle
+      fit: { axis: 'y', metres: 5.4 }, seatTo: PED, envMapIntensity: 0.55,
+    }));
+  }
+
+  /* THE SPONSOR BOARDS get a real carved frame. These are the logo positions, the one
+     part of the room that exists to be photographed and to be seen in a client's
+     recap, so a flat gold rectangle around a mark is the worst place to economise.
+     The canvas keeps its texture; only the primitive rails go. */
+  sponsorBoards.forEach((b, bi) => {
+    jobs.push(place('frame', {
+      parent: hall, position: [b.x, b.y, b.z + 0.06], rotationY: 0,
+      fit: { axis: 'y', metres: b.h + 1.05 }, envMapIntensity: 0.75,
+      onEach: o => {
+        /* A frame is the one asset where a non-uniform scale is honest: real frames are
+           milled to the picture, not to a fixed aspect. Squeeze x to the board so the
+           logo sits inside the rebate rather than floating in a frame of the wrong shape. */
+        const sz = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3());
+        if (sz.x > 1e-6) o.scale.x *= (b.w + 1.05) / sz.x;
+
+        /* The asset ships its own painting on a separate quad sitting exactly in the
+           rebate. Re-texturing that quad in place came out MIRRORED and low, because the
+           author's UVs are flipped in u and do not fill v. Rather than guess at a UV
+           transform that a future asset swap would silently break, MEASURE the rebate
+           and build our own quad in it: the frame supplies the position, we supply the
+           mapping, and a logo is never handed to UVs we do not control. */
+        /* Re-derive the world matrices after the squeeze above. Measuring the child
+           straight away read the PRE-squeeze size (a 7.96m mark in a 5.35m frame),
+           because changing a parent's scale does not touch a child's cached
+           matrixWorld, and updating the child alone composes against the stale parent. */
+        o.updateMatrixWorld(true);
+        let slot = null;
+        o.traverse(m => { if (m.isMesh && /canvas/i.test(m.material?.name || '')) slot = m; });
+        if (slot) {
+          const bb = new THREE.Box3().setFromObject(slot);
+          const c = bb.getCenter(new THREE.Vector3());
+          const sz = bb.getSize(new THREE.Vector3());
+          slot.visible = false;
+          const art = new THREE.Mesh(
+            new THREE.PlaneGeometry(sz.x, sz.y),
+            new THREE.MeshStandardMaterial({
+              map: MAT.logoTex[bi % MAT.logoTex.length], roughness: 0.92, metalness: 0.0,
+            }));
+          // world space, so the frame's own non-uniform scale cannot squash the mark
+          art.name = 'sponsor-art-' + bi;
+          art.position.set(c.x, c.y, bb.max.z + 0.012);
+          hall.add(art);
+        }
+        b.group.visible = false;          // our primitive rails and canvas both go
+      },
+    }));
+  });
+
+  /* candelabra on the lounge tables, replacing the turned-cylinder versions */
+  for (const [x, z, ry] of [[-5.2, -8.4, 0.5], [5.0, -8.8, -0.7]]) {
+    jobs.push(place('candelabra', {
+      parent: hall, position: [x, 0.86, z], rotationY: ry,
+      fit: { axis: 'y', metres: 0.62 }, envMapIntensity: 0.8,
+    }));
+  }
+
+  /* TORCHERES DOWN THE RUNNER (JoJo: "the space still feels so empty").
+     The measured hole was z=-16 to -32, roughly sixteen metres of floor carrying almost
+     nothing while the near lounge carried ninety-five meshes. A hall this long does not
+     get fixed by scattering objects into the gap; it gets fixed by giving the gap the
+     same RHYTHM the building already has, so the eye is walked down to the door instead
+     of skipping across a bare red runner.
+
+     These are the tabletop brass candleholders raised onto pedestals, which is what a
+     floor torchere actually is. They earn their place three times over: they fill the
+     dead band, every one of them carries live flames in a room whose whole subject is
+     candlelight, and their pool of light lands ON the runner, which is the surface that
+     was reading as empty. Staggered left against right so the row never reads as a
+     mirrored pair, which is the instancing tell. */
+  /* z=-13.5 on the left is GONE: the deep left sofa occupies x -8.08..-4.32, z -17.49..-11.83
+     and the torchere stood inside it, overlapping by its entire 0.70 x 1.48 footprint.
+     Moved out to -18.6 where the row still reads as evenly spaced. */
+  const TORCH = [[-1, -18.6], [1, -17.5], [-1, -22.6], [1, -25.5], [-1, -29.5], [1, -33.5]];
+  for (const [side, tz] of TORCH) {
+    const tx = side * 5.5;                      // just outboard of the runner edge at 4.5
+    /* seated on the pedestal CAP, not at its nominal height: the cap top is 0.96h, so
+       placing at h left the candelabrum hovering 7cm in the air on every one of them */
+    const ped = pedestal(tx, tz, 1.7, 0.56);
+    const topY = ped.userData.topY;
+    jobs.push(place('candelabra', {
+      parent: hall, position: [tx, topY, tz], rotationY: side * 0.9 + tz * 0.07,
+      fit: { axis: 'y', metres: 1.15 }, envMapIntensity: 0.8,
+      onEach: () => {
+        // register the flames so these are lit furniture from the first frame, never dark props
+        ambient.push(new THREE.Vector3(tx, topY + 1.15 + 0.12, tz));
+        standLights.push(new THREE.Vector3(tx, topY + 1.15, tz));
+      },
+    }));
+  }
+
+  const done = await Promise.allSettled(jobs);
+  const bad = done.filter(d => d.status === 'rejected');
+  if (bad.length) console.warn('models: ' + bad.length + ' of ' + jobs.length + ' failed', bad[0].reason);
+  return { total: jobs.length, failed: bad.length };
+}
+
+/* Gate the bake on the dressing pass. The bake writes irradiance into VERTICES, so a
+   model that arrives after it runs would be lit by the real lights but carry none of
+   the baked bounce, and would sit in the room looking flatter than everything near it.
+   The race is the safety valve: a missing models folder must not hang the projector. */
+let modelStats = { total: 0, failed: 0 };
+try {
+  modelStats = await Promise.race([
+    dressRoom(),
+    new Promise(r => setTimeout(() => r({ total: 0, failed: -1 }), 12000)),
+  ]);
+  if (modelStats.failed === -1) console.warn('models: timed out, running on stand-ins');
+  else console.log('models: ' + (modelStats.total - modelStats.failed) + '/' + modelStats.total + ' placed');
+} catch (e) { console.warn('models: dressing pass failed', e); }
+window.__models = modelStats;
+// lift the loading screen the instant the room is dressed, straight from the async flow,
+// not on a poll: a throttled or suspended timer must never be what stands between the guest
+// and the room. The IIFE below still carries a hard-cap fallback for the missing-models case.
+if (window.__liftSplash) window.__liftSplash();
+
+/* ---------- GIVE EVERY GUEST CANDLE AN ACTUAL CANDLE (JoJo: "tiny floating candles") ----------
+   He was right, and it was structural rather than cosmetic. `candleSlots` only ever held
+   a POSITION: nothing in the build put wax under any of the 96 of them, so a guest lit
+   their candle and got a flame sprite hanging in mid air. The sill slots were the worst,
+   sitting 0.65m above the ledge they were supposed to be standing on. Reordering the fill
+   to favour on-camera slots, done just above, dragged more of them into shot, which is
+   why this surfaced now rather than earlier.
+
+   Seated by RAYCAST rather than by arithmetic. The slots live on three different surfaces
+   built in three different places (window ledges, balcony rails, door steps), so any
+   hardcoded offset is three chances to be wrong and it rots the moment a surface moves.
+   Dropping a ray and standing the votive on whatever it lands on is correct by
+   construction, and it costs one pass at load.
+
+   One InstancedMesh, so 96 votives are a single draw call. */
+const votives = (() => {
+  /* WITHOUT THIS EVERY RAY LIES. Raycasting reads matrixWorld, and nothing has rendered
+     yet at module scope, so every window group still carried an identity matrix: the sills
+     were effectively sitting at the origin and each probe returned the same two surfaces no
+     matter which x it asked about. The audit read '40 misses' and looked like bad slot
+     positions, when the real fault was asking the scene where things are before it knows. */
+  hall.updateMatrixWorld(true);
+  const ray = new THREE.Raycaster();
+  ray.far = 4.0;
+  const down = new THREE.Vector3(0, -1, 0);
+  const dish = new THREE.CylinderGeometry(0.115, 0.135, 0.045, 12).translate(0, 0.022, 0);
+  const wax  = new THREE.CylinderGeometry(0.085, 0.09, 0.20, 12).translate(0, 0.145, 0);
+  const geo  = mergeGeometries([dish, wax]);
+  const mesh = new THREE.InstancedMesh(geo, MAT.wax.clone(), candleSlots.length);
+  mesh.castShadow = false; mesh.receiveShadow = true;
+  mesh.name = 'votives';
+  const m = new THREE.Matrix4();
+  let seated = 0, floated = 0;
+  const audit = {};   // per original height, so a failure names WHICH family of slots
+  /* A straight-down ray from the slot found a surface for only 36 of the 96, and that was
+     the check EARNING its keep rather than failing: the window-ledge slots sit at
+     x = +-12.38 while the ledge they are named after spans 12.56 to 13.18, so they were
+     never over it. Eighteen centimetres, invisible in code, a candle hanging in space on
+     a 12ft projection. So probe outward from the wall as well, take the first surface
+     found, and MOVE the slot onto it. Self-correcting: if a ledge is ever rebuilt at a
+     different depth the candles follow it instead of quietly detaching again. */
+  /* SEARCH FOR THE NAMED SURFACE, and reject anything that is not it.
+     The audit is what forced this. A plain downward ray "succeeded" for 38 of the 40 sill
+     slots while dropping them to y=0.35, which is the floor at the foot of the wall, not
+     the ledge at 1.4 they are named after. A hit is not the same as the right hit. The
+     balcony rail slots found nothing at all and the outer door-step slots hang past the
+     edge of a step that stops at x=+-5.
+
+     So: probe a neighbourhood, and only accept a surface within a window of the height
+     the slot was authored at. Nearest-to-intended wins, which keeps a candle on its own
+     ledge instead of teleporting it to the floor two metres below. */
+  const cast = (x, y, z) => {
+    ray.set(new THREE.Vector3(x, y + 0.6, z), down);
+    return ray.intersectObject(hall, true)
+      .filter(h => h.object.isMesh && h.object.visible && h.object !== mesh
+                   && h.object.material !== MAT.moonGlow);
+  };
+  candleSlots.forEach((p, i) => {
+    const wantLo = p.y - 0.95, wantHi = p.y + 0.15;   // the surface this slot MEANT
+    let best = null, sx = p.x, sz = p.z;
+    const consider = (x, z) => {
+      for (const h of cast(x, p.y, z)) {
+        if (h.point.y < wantLo || h.point.y > wantHi) continue;
+        if (!best || Math.abs(h.point.y - p.y) < Math.abs(best.point.y - p.y)) {
+          best = h; sx = x; sz = z;
+        }
+        break;                                       // topmost qualifying surface only
+      }
+    };
+    const out = Math.sign(p.x) || 1;                 // outward is toward the nearer wall
+    consider(p.x, p.z);
+    for (const d of [0.25, 0.5, 0.75, 1.0, -0.25, -0.5, -0.75, -1.0]) { if (best) break; consider(p.x + out * d, p.z); }
+    for (const d of [0.35, -0.35, 0.7, -0.7]) { if (best) break; consider(p.x, p.z + d); }
+    const hit = best;
+    const baseY = hit ? hit.point.y + 0.002 : p.y;
+    if (hit) seated++; else floated++;
+    const fam = p.y.toFixed(2);
+    const A = audit[fam] = audit[fam] || { n: 0, hit: 0, miss: 0, dropTo: null };
+    A.n++; hit ? A.hit++ : A.miss++;
+    if (hit && A.dropTo === null) A.dropTo = +baseY.toFixed(2);
+    p.x = sx; p.z = sz;
+    m.makeTranslation(sx, baseY, sz);
+    mesh.setMatrixAt(i, m);
+    // the flame now sits on the WICK of a real candle instead of in the air
+    p.y = baseY + 0.255;
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  hall.add(mesh);
+  console.log('votives: ' + seated + ' seated on geometry, ' + floated + ' found no surface');
+  window.__votiveStats = { seated, floated, total: candleSlots.length, families: audit };
+  return mesh;
+})();
+
+const flameTex = makeFlameTextures();
+const flames = new Flames([hall], flameTex);
+flames.reduced = REDUCED;
+
+/* chandelier flames ride their swinging fitting */
+for (const ch of chandeliers)
+  ch.local.forEach((p, k) => flames.add(p, 991 + ch.seed * 31 + k, { size: 0.42, parents: [ch.group] }));
+/* candelabra flames: furniture, fully lit from the first frame. No stand ever shows
+   one odd candle again. */
+ambient.forEach((p, k) => flames.add(p, 1771 + k, { size: 0.36 }));
+
+const waxGeo = new THREE.CylinderGeometry(0.072, 0.082, 0.60, 8);
+const wax = [], WAXCAP = candleSlots.length;
+{
+  const m = new THREE.InstancedMesh(waxGeo, MAT.wax, WAXCAP);
+  m.count = 0;
+  m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  hall.add(m);
+  wax.push(m);
+}
+
+let litCount = 0;
+function lightCandle(flare) {
+  if (litCount >= candleSlots.length) return false;
+  const i = litCount++;
+  const p = candleSlots[i];
+  const m = new THREE.Matrix4().makeTranslation(p.x, p.y, p.z);
+  const at = new THREE.Vector3(p.x, p.y + 0.42, p.z);
+  const put = () => {
+    for (const w of wax) {
+      w.setMatrixAt(i, m);
+      w.count = Math.max(w.count, i + 1);
+      w.instanceMatrix.needsUpdate = true;
+    }
+    const f = flames.add(at, i, { size: 0.38 });
+    if (flare) f.birth = 1.1;
+  };
+  // A live arrival travels: the spark leaves the mirror and the candle catches when it
+  // lands. Backfill on page load just appears, or a reload would fire two hundred sparks.
+  if (flare) sendSpark(at, put); else put();
+  return true;
+}
+
+/* ---------- THE CHOOSING ----------
+   The one hard beat. The room dims, a gilt frame on the wall ignites, and the guest's
+   name is engraved into it. Everything else in this piece drifts; this lands. */
+/* the leftmost and rightmost columns carrying any ink, in a horizontal band */
+function inkExtent(g, y0, h) {
+  const d = g.getImageData(0, y0, 1024, h).data;
+  let min = 1e9, max = -1;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < 1024; x++)
+      if (d[(y * 1024 + x) * 4 + 3] > 24) { if (x < min) min = x; if (x > max) max = x; }
+  return max < 0 ? null : { min, max, w: max - min };
+}
+
+/* The plaque is PARCHMENT with engraved oxblood type, not white type on a gold fill:
+   a filled gold rectangle is the one thing the deck bans, white-on-gold is ~2.4:1
+   contrast at venue distance, and additive blending could never show dark ink at all
+   (additive can only add light). Kicker in silver, name in oxblood, per the deck's
+   two-metal separation. */
+function makeNameTexture(handle) {
+  const serif = "'Cormorant Garamond','Playfair Display',Georgia,serif";
+  /* FIT the name by MEASURING THE INK on a transparent scratch canvas.
+     measureText does not reliably account for ctx.letterSpacing, and ink-scanning
+     needs transparency, which the parchment fill would destroy. */
+  const scratch = document.createElement('canvas');
+  scratch.width = 1024; scratch.height = 200;
+  const sg = scratch.getContext('2d');
+  sg.textAlign = 'center'; sg.textBaseline = 'middle';
+  try { sg.letterSpacing = '20px'; } catch {}
+  const MAXW = 800;
+  let size = 170, ink = null;
+  for (let attempt = 0; attempt < 14; attempt++) {
+    sg.clearRect(0, 0, 1024, 200);
+    sg.fillStyle = '#000';
+    sg.font = `600 ${size}px ${serif}`;
+    sg.fillText(handle, 512, 100);
+    ink = inkExtent(sg, 0, 200);
+    if (!ink || ink.w <= MAXW) break;
+    size = Math.max(40, Math.round(size * (MAXW / ink.w) * 0.97));
+  }
+  window.__lastInk = ink;
+
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 640;
+  const g = c.getContext('2d');
+  // the parchment card, inset from the canvas edge so the gold frame shows around it
+  const card = { x: 56, y: 48, w: 912, h: 544 };
+  const pg = g.createLinearGradient(0, card.y, 0, card.y + card.h);
+  pg.addColorStop(0, '#F1E8D4');
+  pg.addColorStop(0.5, '#EDE4D3');
+  pg.addColorStop(1, '#DFD2B6');
+  g.fillStyle = pg;
+  g.fillRect(card.x, card.y, card.w, card.h);
+  // double rule border, engraved
+  g.strokeStyle = 'rgba(90,14,27,0.65)';
+  g.lineWidth = 4;
+  g.strokeRect(card.x + 22, card.y + 22, card.w - 44, card.h - 44);
+  g.lineWidth = 1.5;
+  g.strokeRect(card.x + 34, card.y + 34, card.w - 68, card.h - 68);
+
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  try { g.letterSpacing = '14px'; } catch {}
+  g.fillStyle = 'rgba(96,104,116,0.85)';          // the silver kicker
+  g.font = `600 40px ${serif}`;
+  g.fillText('THE MIRROR HAS CHOSEN', 512, 175);
+  try { g.letterSpacing = '20px'; } catch {}
+  g.fillStyle = '#5A0E1B';                        // the name, in oxblood ink
+  g.font = `600 ${size}px ${serif}`;
+  g.fillText(handle, 512, 340);
+  // the emboss: a hairline of light above the ink, so it reads cut, not printed
+  g.fillStyle = 'rgba(255,250,235,0.55)';
+  g.fillText(handle, 512, 337.5);
+  g.fillStyle = '#5A0E1B';
+  g.fillText(handle, 512, 340);
+  try { g.letterSpacing = '0px'; } catch {}
+  g.strokeStyle = 'rgba(90,14,27,0.5)';
+  g.lineWidth = 3;
+  g.beginPath(); g.moveTo(360, 468); g.lineTo(664, 468); g.stroke();
+  // the instruction that gives the beat its NEXT STEP: this is a photo moment
+  try { g.letterSpacing = '10px'; } catch {}
+  g.fillStyle = 'rgba(96,104,116,0.8)';
+  g.font = `600 30px ${serif}`;
+  g.fillText('STEP TO THE MIRROR', 512, 520);
+  try { g.letterSpacing = '0px'; } catch {}
+
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/* ---------- THE TAKEN BEAT ----------
+   The mirror does not only choose, it TAKES. The room inhales: every candle gutters
+   down toward dark, the moon goes cold and hard, one gilt frame keeps the taken
+   guest's name, and then the room breathes back. Deliberately the opposite shape to
+   the choosing, which blooms warm; this one drains. */
+let takenMix = 0;
+const takenPlate = (() => {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(6.9, 4.3),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+  m.position.set(0, 0, 0.07);
+  herald.group.add(m);
+  return m;
+})();
+function makeTakenTexture(handle) {
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 640;
+  const g = c.getContext('2d');
+  const serif = "'Cormorant Garamond','Playfair Display',Georgia,serif";
+  // cold parchment: the same card stock as the choosing, drained of its warmth
+  const pg = g.createLinearGradient(0, 48, 0, 592);
+  pg.addColorStop(0, '#D9DCE4'); pg.addColorStop(1, '#AEB4C2');
+  g.fillStyle = pg; g.fillRect(56, 48, 912, 544);
+  g.strokeStyle = 'rgba(40,44,58,0.55)'; g.lineWidth = 4;
+  g.strokeRect(78, 70, 868, 500);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  try { g.letterSpacing = '14px'; } catch {}
+  g.fillStyle = 'rgba(58,62,78,0.85)';
+  g.font = `600 40px ${serif}`;
+  g.fillText('THE MIRROR HAS TAKEN', 512, 175);
+  try { g.letterSpacing = '20px'; } catch {}
+  g.fillStyle = '#2A2E3C';
+  let size = 170;
+  g.font = `600 ${size}px ${serif}`;
+  while (g.measureText(handle).width > 780 && size > 44) {
+    size -= 6; g.font = `600 ${size}px ${serif}`;
+  }
+  g.fillText(handle, 512, 340);
+  try { g.letterSpacing = '10px'; } catch {}
+  g.fillStyle = 'rgba(58,62,78,0.8)';
+  g.font = `600 30px ${serif}`;
+  g.fillText('THE ROOM WILL REMEMBER', 512, 500);
+  try { g.letterSpacing = '0px'; } catch {}
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function beginTaken(guestId) {
+  const g = S.guests.get(guestId);
+  if (takenPlate.material.map) takenPlate.material.map.dispose();
+  takenPlate.material.map = makeTakenTexture((g && g.handle) || 'A GUEST');
+  takenPlate.material.needsUpdate = true;
+  flames.blow(0, 1.6);                 // the draught that starts it
+}
+
+/* ---------- THE MIDNIGHT VOTE ----------
+   The room asks, the floor answers on their phones, and the hall shows the tally as
+   two rivers of candlelight racing along the aisle. No UI chrome: the count IS the
+   light, which is the only way a vote reads from across a dark room. */
+let voteMix = 0;
+const voteBars = [-1, 1].map(side => {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.5, 26),
+    new THREE.MeshBasicMaterial({
+      color: side < 0 ? C.amber : C.moon, map: MAT.shaftFade, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(side * 2.6, 0.09, -12);
+  scene.add(m);
+  return m;
+});
+const voteText = (() => {
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 256;
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(19, 4.75),
+    new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0, depthWrite: false }));
+  m.position.set(0, 12.4, FAR_Z + 3.2);
+  scene.add(m);
+  return { mesh: m, canvas: c, tex: t };
+})();
+function paintVote(v) {
+  const g = voteText.canvas.getContext('2d');
+  const serif = "'Cormorant Garamond','Playfair Display',Georgia,serif";
+  g.clearRect(0, 0, 1024, 256);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  try { g.letterSpacing = '12px'; } catch {}
+  g.fillStyle = '#F2E4C0';
+  const q = v.q || 'CANDLELIGHT OR MOONLIGHT';
+  let qs = 62;
+  g.font = `600 ${qs}px ${serif}`;
+  while (g.measureText(q).width > 940 && qs > 22) {
+    qs -= 3; g.font = `600 ${qs}px ${serif}`;
+  }
+  g.fillText(q, 512, 78);
+  g.font = `600 44px ${serif}`;
+  g.fillStyle = '#FFB661';
+  g.fillText(`${v.a || 'CANDLELIGHT'}  ${v.tally ? v.tally.a : 0}`, 300, 178);
+  g.fillStyle = '#C7C4E4';
+  g.fillText(`${v.b || 'MOONLIGHT'}  ${v.tally ? v.tally.b : 0}`, 724, 178);
+  try { g.letterSpacing = '0px'; } catch {}
+  voteText.tex.needsUpdate = true;
+}
+
+let chooseMix = 0;                    // 0 idle, 1 fully in the beat
+let chosenFrame = null;
+function beginChoosing(guestId) {
+  const g = S.guests.get(guestId);
+  // ALWAYS the herald frame on the apse: square to the camera and readable.
+  const wf = herald;
+  if (!wf) return;
+  if (!wf.plate) {
+    // normal blending: the plaque carries dark ink, and additive cannot darken.
+    // Sized to the herald over the grand door (canvas aspect 1.6).
+    wf.plate = new THREE.Mesh(
+      new THREE.PlaneGeometry(6.9, 4.3),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+    wf.plate.position.set(0, 0, 0.06);
+    wf.group.add(wf.plate);
+  }
+  if (wf.plate.material.map) wf.plate.material.map.dispose();
+  wf.plate.material.map = makeNameTexture((g && g.handle) || 'A GUEST');
+  wf.plate.material.needsUpdate = true;
+  chosenFrame = wf;
+  flames.blow(0, 1.3);               // the room feels it
+}
+
+/* ---------- ARRIVAL ----------
+   A guest joining used to make a candle silently exist, which is why nothing on screen
+   said anything was happening. Now a spark leaves the mirror, arcs across the room, and
+   lights their candle: the room visibly reacts to a person on the door. */
+const sparks = [];
+const ringGeo = new THREE.TorusGeometry(1, 0.045, 6, 40);
+const ringMat = new THREE.MeshBasicMaterial({
+  color: 0xFFDCA0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+
+function sendSpark(target, onArrive) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: flameTex.glow, color: 0xFFF0C8, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false }));
+  scene.add(s);
+  sparks.push({
+    s, t: 0, dur: 1.05 + Math.abs(target.x) * 0.02,
+    // born at the herald over the grand door: the mirror grants the candle
+    from: new THREE.Vector3(0, 9.2, FAR_Z + 2),
+    ctrl: new THREE.Vector3(target.x * 0.35, 14.5, (FAR_Z + 2 + target.z) / 2),
+    to: target.clone(), onArrive,
+  });
+}
+
+/* POOLED arrival lights (research panel finding): adding or removing a PointLight
+   changes NUM_POINT_LIGHTS, which recompiles EVERY material in the scene: a
+   multi-hundred-ms hitch on each guest join. Three pre-allocated slots, moved and
+   dimmed, never added or removed. */
+const rings = [];
+const ringLights = Array.from({ length: 3 }, () => {
+  const l = new THREE.PointLight(0xFFD79A, 0, 18, 2);
+  scene.add(l);
+  return l;
+});
+let ringLightIdx = 0;
+function popRing(pos) {
+  const m = new THREE.Mesh(ringGeo, ringMat.clone());
+  m.position.copy(pos);
+  m.rotation.x = -Math.PI / 2;
+  scene.add(m);
+  const light = ringLights[ringLightIdx++ % ringLights.length];
+  light.position.copy(pos);
+  light.intensity = 55;
+  rings.push({ m, t: 0, light });
+}
+
+function updateArrivals(dt) {
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const k = sparks[i];
+    k.t += dt / k.dur;
+    if (k.t >= 1) {
+      scene.remove(k.s); k.s.material.dispose();
+      sparks.splice(i, 1);
+      popRing(k.to);
+      k.onArrive && k.onArrive();
+      continue;
+    }
+    const u = k.t, iu = 1 - u;
+    k.s.position.set(
+      iu * iu * k.from.x + 2 * iu * u * k.ctrl.x + u * u * k.to.x,
+      iu * iu * k.from.y + 2 * iu * u * k.ctrl.y + u * u * k.to.y,
+      iu * iu * k.from.z + 2 * iu * u * k.ctrl.z + u * u * k.to.z);
+    const sc = 0.5 + Math.sin(u * Math.PI) * 0.75;
+    k.s.scale.set(sc, sc, 1);
+    k.s.material.opacity = Math.min(1, (1 - u) * 3.2);
+  }
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const r = rings[i];
+    r.t += dt / 0.85;
+    if (r.t >= 1) {
+      scene.remove(r.m); r.m.material.dispose();
+      r.light.intensity = 0;              // pooled: dimmed, never removed
+      rings.splice(i, 1);
+      continue;
+    }
+    const s = 0.15 + r.t * 2.4;
+    r.m.scale.set(s, s, s);
+    r.m.material.opacity = (1 - r.t) * 0.8;
+    r.light.intensity = 55 * (1 - r.t) * (1 - r.t);
+  }
+}
+
+/* ---------- ambient magic ----------
+   Slowsie asked for gothic MAGICAL. This is where that lives: motes rising through the
+   candlelight, and a sigil turning slowly on the floor. Both are additive and cheap. */
+const moteCount = REDUCED ? 120 : LITE ? 200 : 520;
+const motes = (() => {
+  const pos = new Float32Array(moteCount * 3);
+  const spd = new Float32Array(moteCount);
+  for (let i = 0; i < moteCount; i++) {
+    pos[i * 3] = (Math.sin(i * 12.9898) * 43758.5453 % 1) * 24 - 12;
+    pos[i * 3 + 1] = ((i * 0.6180339887) % 1) * 17;
+    pos[i * 3 + 2] = Z0 - ((i * 0.7548776662) % 1) * 50;
+    spd[i] = 0.20 + ((i * 0.3819660113) % 1) * 0.55;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const m = new THREE.Points(g, new THREE.PointsMaterial({
+    map: flameTex.glow, color: 0xFFC98A, size: 0.34, sizeAttenuation: true,
+    transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
+  scene.add(m);
+  return { points: m, pos, spd };
+})();
+
+/* the moon dust rides in the same system now: the formal room breathes evenly */
+
+/* rose petals, falling slowly through the room. The board's romance, in motion.
+   Normal blending on purpose: an additive petal glows white and reads as an ember. */
+const petalTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(30, 26, 4, 32, 32, 30);
+  rg.addColorStop(0, 'rgba(248,206,216,0.95)');
+  rg.addColorStop(0.6, 'rgba(233,169,184,0.9)');
+  rg.addColorStop(1, 'rgba(190,110,132,0)');
+  g.fillStyle = rg;
+  g.beginPath();
+  g.ellipse(32, 32, 26, 17, 0.5, 0, Math.PI * 2);
+  g.fill();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
+const PETALS = REDUCED ? 8 : LITE ? 12 : 26;
+const petals = [];
+const petalSpawn = () => ({
+  x: -9 + Math.random() * 18, z: 12 - Math.random() * 48,
+  y: 10 + Math.random() * 5,
+  spd: 0.35 + Math.random() * 0.4, ph: Math.random() * 6.28,
+  spin: (Math.random() - 0.5) * 1.6,
+});
+for (let i = 0; i < PETALS; i++) {
+  // tinted DOWN: a petal is a dark silhouette with a rose rim, not pink confetti
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: petalTex, color: 0x9A5A68, transparent: true, opacity: 0, depthWrite: false }));
+  s.scale.set(0.28, 0.24, 1);
+  scene.add(s);
+  const p = petalSpawn();
+  p.y = Math.random() * 12;          // first generation scattered mid-fall
+  petals.push({ s, ...p });
+}
+
+/* the spinning floor sigil is GONE (JoJo: "what is that symbol spinning on the ground?").
+   Magic now lives in the flames, the dust and the petals, not in occult set dressing. */
+
+
+/* the warm flash that ignites the herald during the choosing. Without it the gold
+   frame sits in the apse's cool moonlight and the beat has no temperature change. */
+const heraldLight = new THREE.PointLight(C.amber, 0, 28, 2);
+heraldLight.position.set(0, 8.6, (herald ? herald.group.position.z : FAR_Z + 1.35) + 2.5);
+scene.add(heraldLight);
+
+/* the vignette frame is GONE (JoJo, twice: "not a fan of the mirror", "looks like a
+   suitcase"). The projection is a window into the hall, edge to edge. */
+scene.add(camera);
+
+/* ---------- THE STEP-AND-REPEAT ----------
+   JoJo's call, 2026-08-13: the wall doubles as an interactive photo backdrop. A velvet
+   drape bearing the sponsor lattice descends over the apse when staff drop it, the
+   camera squares up, and people shoot in front of it while the candles and petals keep
+   moving. The mirror choosing someone is the same thing personalised: their NAME
+   becomes the backdrop. PLACEHOLDER ART: MIXR STUDIOS + ENDLESS RIVER wordmarks set in
+   type; real vector marks and written sign-off required before the night (EA rule),
+   and sponsor rows get added to this texture when Slowsie names them. */
+const stepWall = (() => {
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 576;
+  const g = c.getContext('2d');
+  const bg = g.createLinearGradient(0, 0, 0, 576);
+  bg.addColorStop(0, '#2E1838');
+  bg.addColorStop(1, '#1C0F26');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, 1024, 576);
+  // velvet fold shading, vertical
+  for (let i = 0; i < 12; i++) {
+    const x = (i + 0.5) * (1024 / 12);
+    const fg = g.createLinearGradient(x - 42, 0, x + 42, 0);
+    fg.addColorStop(0, 'rgba(0,0,0,0.30)');
+    fg.addColorStop(0.5, 'rgba(233,169,184,0.05)');
+    fg.addColorStop(1, 'rgba(0,0,0,0.30)');
+    g.fillStyle = fg;
+    g.fillRect(x - 42, 0, 84, 576);
+  }
+  const serif = "'Cormorant Garamond','Playfair Display',Georgia,serif";
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  /* The lattice alternates THE REAL MIXR WORDMARK (recoloured gold from the black
+     source PNG) with ENDLESS RIVER in type (their mark is still awaited, EA rule).
+     Drawn once with type as placeholder, redrawn the moment the logo image lands. */
+  const drawLattice = (logoImg) => {
+    const rows = 5, cols = 2;
+    for (let r = 0; r < rows; r++) {
+      const y = (r + 0.5) * (576 / rows);
+      const off = (r % 2) * 0.5;                // the classic diamond offset
+      for (let col = 0; col <= cols; col++) {
+        const x = ((col + 0.5 - off) / cols) * 1024;
+        if (x < 170 || x > 854) {
+          if (x > -60 && x < 1084) {
+            g.fillStyle = 'rgba(200,162,74,0.45)';
+            g.font = `400 26px ${serif}`;
+            g.fillText('✦', Math.max(30, Math.min(994, x)), y);
+          }
+          continue;
+        }
+        if ((r + col) % 2 === 0 && logoImg) {
+          const lw = 240, lh = lw * (logoImg.height / logoImg.width);
+          g.drawImage(logoImg, x - lw / 2, y - lh / 2 + 2, lw, lh);
+        } else {
+          const mark = (r + col) % 2 === 0 ? 'MIXR STUDIOS' : 'ENDLESS RIVER';
+          try { g.letterSpacing = '6px'; } catch {}
+          g.font = `600 36px ${serif}`;
+          g.fillStyle = 'rgba(20,10,26,0.75)';  // engraved shadow
+          g.fillText(mark, x, y + 2);
+          g.fillStyle = '#C8A24A';
+          g.fillText(mark, x, y);
+          try { g.letterSpacing = '0px'; } catch {}
+        }
+      }
+    }
+  };
+  drawLattice(null);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  // load the mark, recolour it gold with an engraved shadow, redraw the lattice
+  const logoSrc = new Image();
+  logoSrc.onload = () => {
+    const off2 = document.createElement('canvas');
+    off2.width = logoSrc.width; off2.height = logoSrc.height;
+    const og = off2.getContext('2d');
+    og.drawImage(logoSrc, 0, 0);
+    og.globalCompositeOperation = 'source-in';
+    og.fillStyle = '#C8A24A';
+    og.fillRect(0, 0, off2.width, off2.height);
+    // rebuild: background + folds first, then the lattice with the gold mark
+    const bg2 = g.createLinearGradient(0, 0, 0, 576);
+    bg2.addColorStop(0, '#2E1838'); bg2.addColorStop(1, '#1C0F26');
+    g.globalCompositeOperation = 'source-over';
+    g.fillStyle = bg2; g.fillRect(0, 0, 1024, 576);
+    for (let i = 0; i < 12; i++) {
+      const x = (i + 0.5) * (1024 / 12);
+      const fg = g.createLinearGradient(x - 42, 0, x + 42, 0);
+      fg.addColorStop(0, 'rgba(0,0,0,0.30)');
+      fg.addColorStop(0.5, 'rgba(233,169,184,0.05)');
+      fg.addColorStop(1, 'rgba(0,0,0,0.30)');
+      g.fillStyle = fg;
+      g.fillRect(x - 42, 0, 84, 576);
+    }
+    drawLattice(off2);
+    t.needsUpdate = true;
+  };
+  logoSrc.src = 'textures/brand/compressed/mixr_logo.webp';
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(21, 11.8),
+    new THREE.MeshBasicMaterial({ map: t, toneMapped: true }));
+  mesh.position.set(0, 26, -36);                // parked above the ceiling, out of sight
+  mesh.visible = false;
+  scene.add(mesh);
+  return mesh;
+})();
+let photoMix = 0;
+
+/* ---------- post ---------- */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+
+/* GTAO: screen-space ambient occlusion with Poisson denoise. Contact darkening in
+   every corner, junction and under-balcony shadow, which is most of the difference
+   between "3D model" and "room". */
+/* half resolution: the Poisson denoiser hides the undersampling, the cost quarters */
+const gtao = new GTAOPass(scene, camera, innerWidth >> 1, innerHeight >> 1);
+gtao.setSceneClipBox(new THREE.Box3(
+  new THREE.Vector3(-14.5, -1, -42), new THREE.Vector3(14.5, 17, 16)));
+gtao.updateGtaoMaterial({
+  radius: 0.9, distanceExponent: 1.6, thickness: 1.2,
+  scale: 1.4, samples: 12, distanceFallOff: 1.0, screenSpaceRadius: false,
+});
+gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2.5, normalPhi: 3.5, radius: 6, rings: 3, samples: 12 });
+gtao.blendIntensity = 0.9;
+/* GTAOPass hides Points and Lines during its G-buffer render but NOT Sprites, and
+   Sprites ignore scene.overrideMaterial, so every flame glow rendered its own additive
+   material INTO the normal buffer: the denoiser turned each one into a hard black
+   card. Patch the instance to also hide sprites and additive-blended meshes (the
+   moonbeam shells) during that pass; _restoreVisibility restores from the same cache. */
+gtao._overrideVisibility = function () {
+  const cache = this._visibilityCache;
+  this.scene.traverse(o => {
+    const additiveMesh = o.isMesh && o.material && o.material.transparent &&
+      o.material.blending === THREE.AdditiveBlending;
+    if ((o.isPoints || o.isLine || o.isSprite || additiveMesh) && o.visible) {
+      o.visible = false;
+      cache.push(o);
+    }
+  });
+};
+gtao.enabled = !NOAO && !LITE;
+composer.addPass(gtao);
+
+// Tighter bloom: fat equal halos on every candle erase distance (near and far flames
+// bloomed the same) and eat the geometry around them. Smaller radius, higher floor.
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.52, 0.48, 0.9);
+/* CHROMATIC HALATION (research panel): the bloom mips are individually tintable and
+   almost nobody uses it. Tight core mips stay amber, the room-scale halo mips go
+   lilac: candle physics meeting the midnight palette, at zero cost. */
+bloom.bloomTintColors[0].set(1.00, 0.86, 0.62);
+bloom.bloomTintColors[1].set(1.00, 0.80, 0.55);
+bloom.bloomTintColors[2].set(0.95, 0.78, 0.72);
+bloom.bloomTintColors[3].set(0.80, 0.72, 1.00);
+bloom.bloomTintColors[4].set(0.70, 0.64, 1.00);
+bloom.compositeMaterial.uniforms['bloomFactors'].value = [1.0, 0.9, 0.8, 0.7, 0.6];
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+const smaa = new SMAAPass();
+/* the default 0.1 edge threshold is an absolute RGB delta, so in a room that is 80
+   percent near-black it finds almost no edges: a dark banister against a dark wall
+   never trips it. Lower it and the geometry actually antialiases. */
+if (smaa._edgesMaterial) {
+  smaa._edgesMaterial.defines.SMAA_THRESHOLD = '0.035';
+  smaa._edgesMaterial.needsUpdate = true;
+}
+composer.addPass(smaa);
+
+/* the grade: a soft vignette and living film grain, applied after tonemapping.
+   The last few percent of "shot on a camera" instead of "rendered in a browser". */
+/* DEPTH OF FIELD, reusing GTAO's depth buffer (no second scene render, no BokehPass
+   sprite trap). JoJo's diagnosis, 2026-08-13: "the edges don't really blend in with
+   the environment". He was right and it was not a shading choice: EVERY edge in the
+   frame was pin sharp at every distance, which no camera and no eye ever produces, so
+   objects read as cut out and pasted rather than sitting in air. Near field stays
+   sharp, the far end softens. Far-field-only is deliberate: it is ~90 percent of the
+   read for a fraction of the cost, and it can never blur the thing being looked at. */
+const gradePass = new ShaderPass({
+  uniforms: {
+    tDiffuse: { value: null }, uTime: { value: 0 },
+    tDepth: { value: null }, uNear: { value: camera.near }, uFar: { value: camera.far },
+    uFocus: { value: 36 }, uBlur: { value: 1.5 }, uTexel: { value: new THREE.Vector2() },
+    // dial it live with ?purple=0.55 rather than re-editing a shader on the venue laptop
+    uPurple: { value: +(qs.get('purple') || 0.38) },
+  },
+  vertexShader: `varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uTime; varying vec2 vUv;
+    uniform sampler2D tDepth; uniform float uNear; uniform float uFar;
+    uniform float uFocus; uniform float uBlur; uniform vec2 uTexel; uniform float uPurple;
+    float viewZ(vec2 uv) {
+      float d = texture2D(tDepth, uv).x;
+      // perspective depth is nonlinear; without this the blur ramps in the wrong place
+      return (2.0 * uNear * uFar) / (uFar + uNear - (d * 2.0 - 1.0) * (uFar - uNear));
+    }
+    float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7)) + uTime * 61.0) * 43758.5453); }
+    // Jimenez interleaved gradient noise: the +/-0.5 LSB dither that stops a dim
+    // projector showing contour rings across every wall falloff
+    float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      /* far-field circle of confusion: 0 at the focus plane, ramping to full past it */
+      float z = viewZ(vUv);
+      float coc = clamp((z - uFocus) / 34.0, 0.0, 1.0);
+      coc = coc * coc * uBlur;
+      if (coc > 0.004) {
+        // 8 taps on two rings, offset so the kernel never reads as a cross
+        vec3 sum = c.rgb;
+        float r = coc * 3.4;
+        for (int i = 0; i < 8; i++) {
+          float a = float(i) * 0.7853981634 + 0.3926990817;
+          vec2 o = vec2(cos(a), sin(a)) * uTexel * r * (i < 4 ? 1.0 : 2.1);
+          sum += texture2D(tDiffuse, vUv + o).rgb;
+        }
+        c.rgb = mix(c.rgb, sum / 9.0, min(1.0, coc * 1.6));
+      }
+      vec2 q = vUv - 0.5;
+      float r2 = dot(q, q);
+      // a LENS vignette, not a CSS gradient: corners also desaturate and cool
+      float vig = clamp(1.0 - 0.42 * r2 * 4.0, 0.0, 1.0);
+      c.rgb *= mix(0.62, 1.0, vig);
+      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      c.rgb = mix(c.rgb, mix(vec3(l), c.rgb, 0.85) * vec3(0.94, 0.94, 1.06), (1.0 - vig) * 0.6);
+      /* MIDNIGHT PURPLE, as a SPLIT TONE rather than more coloured lights (JoJo: "add
+         some more midnight purple to this scene"). Tinting by adding purple lamps would
+         have washed the candle amber toward magenta and flattened the contrast the bake
+         works for. A split tone pushes only the DARKS toward violet and leaves anything
+         a flame is actually lighting alone, which is how a night grade is built: the
+         shadows carry the colour, the practicals stay warm.
+         Re-tint at constant luma so pushing the hue never darkens the room. */
+      float lum2 = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      float sw = 1.0 - clamp(lum2 * 1.7, 0.0, 1.0);
+      sw *= sw;
+      /* PROTECT WHAT A FLAME IS LIGHTING. Luma alone is not enough: the bronze of the
+         chandelier and the wax of a candle sit in the midtones, so a pure luma mask
+         dragged the one warm hero element in the room toward violet and the fitting went
+         dead. Anything already warmer in red than blue keeps its amber. */
+      sw *= 1.0 - clamp((c.r - c.b) * 2.6, 0.0, 1.0);
+      vec3 violet = vec3(lum2) * vec3(0.74, 0.47, 1.32);
+      c.rgb = mix(c.rgb, violet, sw * uPurple);
+      // monochrome luma-weighted grain: film emulsion, not sensor noise
+      float g = hash(gl_FragCoord.xy / 1.25 + vec2(uTime * 37.0)) - 0.5;
+      c.rgb += g * 0.026 * mix(1.0, 0.25, l);
+      // dither dead last
+      c.rgb += (1.0 / 255.0) * ign(gl_FragCoord.xy) - (0.5 / 255.0);
+      gl_FragColor = c;
+    }`,
+});
+composer.addPass(gradePass);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  if (PORTAL) applyPortal();                 // updateProjectionMatrix would overwrite
+  else camera.updateProjectionMatrix();      // the off-axis portal frustum
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  bloom.setSize(innerWidth, innerHeight);
+  gtao.setSize(innerWidth >> 1, innerHeight >> 1);
+});
+
+/* The herald is INVISIBLE until the mirror chooses: an empty gold frame hanging over
+   the door all night read as a switched-off TV covering the door (JoJo, three rounds
+   running, finally heard properly). The frontispiece and door stand clean; the frame
+   and plaque MATERIALISE for the beat and dissolve after. */
+herald.group.visible = false;
+
+/* ---------- THE LIGHT BAKE ----------
+   The overhaul centrepiece. Every candle's contribution, including the shadowing and
+   the corner occlusion no realtime light gives us, is solved once into vertex data and
+   read back for free every frame after. This is what an offline renderer's bounced
+   light buys, without giving up a single frame of interactivity: the room stays fully
+   live, which is the whole reason we are still in three.js (guests will control it).
+   ?nobake=1 skips it if the venue machine ever struggles. */
+const bakeLights = [];
+for (const p of candleSlots) bakeLights.push({ position: p, color: C.amber, intensity: 2.2, range: 7 });
+for (const p of ambient)     bakeLights.push({ position: p, color: C.amber, intensity: 3.0, range: 8 });
+for (const p of standLights) bakeLights.push({ position: p, color: C.amber, intensity: 6.0, range: 9 });
+for (const k of keyLights)
+  bakeLights.push({ position: k.light.getWorldPosition(new THREE.Vector3()),
+                    color: C.amber, intensity: k.power, range: 70, group: 2 });
+bakeLights.push({ position: new THREE.Vector3(0, 6.5, FAR_Z + 6),
+                  color: C.amber, intensity: 26, range: 40, group: 1 });
+
+
+
+let bakeStats = null;
+if (qs.get('nobake') !== '1' && !LITE) {
+  const job = bakeIrradiance([hall, floor, rug], {
+    lights: bakeLights,
+    // the window panes are GLASS: they must not shadow the room they light
+    isOccluder: m => m.material !== MAT.moonGlow,
+    onDone: st => { bakeStats = st; console.log('bake done', st.vertices, 'verts in', st.ms, 'ms'); },
+  });
+  window.__bake = job;
+}
+
+/* ---------- the sensors ---------- */
+const field = new MotionField({ cols: 40 });
+const audio = new AudioField();
+
+/* ---------- state ---------- */
+const S = { guests: new Map(), phase: { name: 'idle', guestId: 0 }, mood: 'candle', photoMode: false, vote: null };
+let clock = 0;
+
+/* ---------- frame ---------- */
+function frame(dt) {
+  clock += dt;
+  field.update(dt);
+  audio.update(dt);
+  const aB = audio.live ? audio.bass : 0;
+  const aM = audio.live ? audio.mid : 0;
+  const aT = audio.live ? audio.treble : 0;
+  const aBeat = audio.live ? audio.beat : 0;
+  flames.boost = 1 + aBeat * 0.35;               // every flame jumps on the kick
+
+  // a big movement in the room sends one gust across the hall
+  if (field.live && field.total > 0.55) {
+    let mx = 0, mi = 0;
+    for (let c = 0; c < field.cols; c++) if (field.energy[c] > mx) { mx = field.energy[c]; mi = c; }
+    let u = mi / (field.cols - 1);
+    if (field.flip) u = 1 - u;
+    flames.blow(u * 2 - 1, Math.min(1, (field.total - 0.55) * 2.2));
+  }
+
+  flames.update(dt, clock, camera, field);
+  updateArrivals(dt);
+
+  const amp = REDUCED ? 0.25 : 1;
+
+  /* the chandeliers are PENDULUMS on a chain: slow, heavy, underdamped, and pushed by
+     the same gust that moves the flames */
+  for (const ch of chandeliers) {
+    let fx = amp * (0.085 * Math.sin(clock * 0.47 + ch.seed) + 0.045 * Math.sin(clock * 0.83 + ch.seed * 2.1));
+    let fz = amp * (0.070 * Math.sin(clock * 0.39 + ch.seed * 1.6));
+    if (field.live) fx += field.total * 0.16 * Math.sin(clock * 0.9 + ch.seed);
+    // the bass swings the fittings, each on its own phase so they never sync up
+    fx += aB * 0.45 * Math.sin(clock * 1.3 + ch.seed) * amp;
+    if (flames.gust > 0.01) fx += flames.gust * 0.55 * (flames.gustX < 0 ? 1 : -1);
+    ch.vel.x += (fx - 2.6 * ch.ang.x - 0.85 * ch.vel.x) * dt;
+    ch.vel.y += (fz - 2.6 * ch.ang.y - 0.85 * ch.vel.y) * dt;
+    ch.ang.x += ch.vel.x * dt;
+    ch.ang.y += ch.vel.y * dt;
+    ch.group.rotation.z = ch.ang.x;
+    ch.group.rotation.x = ch.ang.y;
+    // the reflection swings the opposite way for free: its parent has scale.y = -1
+    if (ch.mirror) { ch.mirror.rotation.z = ch.ang.x; ch.mirror.rotation.x = ch.ang.y; }
+  }
+
+  /* motes rising through the candlelight */
+  const mp = motes.pos;
+  const moteK = 1 + aM * 1.4;                    // the dust dances in the mids
+  for (let i = 0; i < moteCount; i++) {
+    mp[i * 3 + 1] += motes.spd[i] * dt * amp * moteK;
+    mp[i * 3] += Math.sin(clock * 0.3 + i) * dt * 0.14 * amp;
+    if (mp[i * 3 + 1] > 17.4) mp[i * 3 + 1] = 0.25;
+  }
+  motes.points.geometry.attributes.position.needsUpdate = true;
+
+  // petals: fall, sway, spin, fade in near the top and out near the floor
+  for (const p of petals) {
+    p.y -= p.spd * dt * amp;
+    p.x += Math.sin(clock * 0.7 + p.ph) * dt * 0.35 * amp;
+    p.s.material.rotation += dt * p.spin * amp;
+    if (p.y < 0.15) Object.assign(p, petalSpawn());
+    p.s.position.set(p.x, p.y, p.z);
+    p.s.material.opacity = Math.max(0, Math.min(0.62, (12 - p.y) * 0.4, (p.y - 0.1) * 1.6));
+  }
+
+  // the moonbeams and their floor pools breathe, slowly and out of step
+  beams.forEach((b, i) => {
+    const k = b.userData.k || 1;
+    b.material.opacity = (0.011 + 0.005 * Math.sin(clock * 0.37 + i * 2.2) + aT * 0.012) * k;
+  });
+
+  /* THE VOTE: two rivers of light down the aisle, their lengths racing the tally.
+     No UI chrome anywhere: from across a dark room the COUNT has to be the LIGHT. */
+  const wantVote = (S.vote && S.vote.open) ? 1 : 0;
+  voteMix += (wantVote - voteMix) * Math.min(1, dt * 1.4);
+  if (voteMix > 0.01 && S.vote) {
+    const ta = S.vote.tally ? S.vote.tally.a : 0;
+    const tb = S.vote.tally ? S.vote.tally.b : 0;
+    const total = Math.max(1, ta + tb);
+    voteBars.forEach((bar, i) => {
+      const share = (i === 0 ? ta : tb) / total;
+      const len = 4 + share * 30;
+      bar.scale.set(1, len / 26, 1);
+      bar.position.z = -12 + (26 - len) / 2;
+      bar.material.opacity = voteMix * (0.10 + share * 0.30 + aBeat * 0.06);
+    });
+    voteText.mesh.material.opacity = voteMix;
+  } else {
+    voteBars.forEach(b => { b.material.opacity = 0; });
+    voteText.mesh.material.opacity = 0;
+  }
+
+  heraldLight.intensity = chooseMix * 70 + takenMix * 18;
+
+  /* THE CHOOSING: the room recedes and the herald MATERIALISES over the door */
+  const want = S.phase.name === 'choosing' ? 1 : 0;
+  chooseMix += (want - chooseMix) * Math.min(1, dt * (want ? 2.4 : 1.1));
+  const ce = chooseMix * chooseMix * (3 - 2 * chooseMix);
+  herald.group.visible = chooseMix > 0.02 || takenMix > 0.02;
+  herald.group.scale.setScalar(0.82 + 0.18 * ce);      // pours in, not pops
+  if (chosenFrame) {
+    // The inset SMOULDERS behind the plaque; the parchment is the bright thing.
+    chosenFrame.inset.material.emissiveIntensity = chooseMix * 0.3;
+    if (chosenFrame.plate) chosenFrame.plate.material.opacity = Math.max(0, chooseMix * 1.5 - 0.5);
+  }
+
+  /* THE TAKEN BEAT: the room drains instead of blooming. */
+  const wantTaken = S.phase.name === 'taken' ? 1 : 0;
+  takenMix += (wantTaken - takenMix) * Math.min(1, dt * (wantTaken ? 2.0 : 0.9));
+  if (takenMix > 0.02) {
+    herald.group.visible = true;
+    takenPlate.material.opacity = Math.max(0, takenMix * 1.5 - 0.5);
+    // the flames gutter DOWN and the moon goes hard and cold
+    flames.boost = (flames.boost || 1) * (1 - takenMix * 0.55);
+    MAT.moonGlow.emissiveIntensity = 0.9 + takenMix * 1.1;
+  } else {
+    takenPlate.material.opacity = 0;
+  }
+
+  const dim = 1 - chooseMix * 0.62 - takenMix * 0.55;
+  for (let i = 0; i < keyLights.length; i++) {
+    const k = keyLights[i];
+    const flick = 1 + amp * 0.06 * Math.sin(clock * 6.3 + i * 2.1)
+                    + (field.live ? field.total * 0.12 : 0)
+                    + aB * 0.28;
+    k.light.intensity = k.power * dim * flick;
+    /* the fitting's own lamps flicker WITH its light, so the glow and the illumination
+       are never out of step, which is the tell that a glow is a painted-on sprite */
+    const lamps = chandeliers[i] && chandeliers[i].lamps;
+    if (lamps) for (const m of lamps) m.emissiveIntensity = 5.0 * dim * flick;
+    const glass = chandeliers[i] && chandeliers[i].glass;
+    if (glass) for (const m of glass) m.emissiveIntensity = 0.85 * dim * flick;
+  }
+  // the moon answers the music too: panes breathe with the kick, softly
+  MAT.moonGlow.emissiveIntensity = 0.85 + aBeat * 0.5;
+
+  /* the baked light BREATHES. Three clusters by height (furniture, rails, chandeliers)
+     on their own slow rhythms plus the music, so a frozen solve never reads frozen.
+     Zero is neutral in this API, so this is a wobble around the bake, not a scale. */
+  setFlicker(
+    0.10 * Math.sin(clock * 1.7) + 0.05 * Math.sin(clock * 4.3) + aB * 0.20,
+    0.08 * Math.sin(clock * 1.1 + 2.0) + 0.04 * Math.sin(clock * 3.7),
+    0.09 * Math.sin(clock * 0.9 + 4.0) + aBeat * 0.15);
+
+  /* the drape: slides down over the apse for photo runs, room brightens to meet it */
+  photoMix += ((S.photoMode ? 1 : 0) - photoMix) * Math.min(1, dt * 1.5);
+  stepWall.visible = photoMix > 0.01;
+  stepWall.position.y = 26 - photoMix * 19.6;    // settles at y 6.4, over the frontispiece
+
+  /* THE CAMERA IS STRAIGHT AND IT STAYS PUT (JoJo, 2026-08-13: "shouldn't the room be
+     straight not at an angle?" and, on the choosing push-in, "maybe we scrap that
+     portion"). The formal one-point view down the axis to the grand door, like the
+     reference. It breathes a few centimetres so the image is alive, and that is all
+     the movement it ever makes: the choosing and the photo wall are LIGHTING events
+     in a steady room, not camera events. */
+  const drift = REDUCED ? 0 : 1;
+  // eye height dropped toward the reference's elevated-landing view: at 5.9 it read
+  // as a drone shot, at 4.7 the room towers the way a great hall should
+  if (PORTAL) {
+    /* The portal camera NEVER moves and never tilts: the illusion that the hall
+       continues the venue depends on a fixed eye and vertical verticals. All life
+       comes from the room itself: flames, shadows, motes, petals, the beats. */
+    camera.position.set(0, EYE_H, WINZ + EYE_D);
+    camera.rotation.set(0, 0, 0);
+  } else {
+    // brought IN again (JoJo): z 13 puts the sponsor boards and the door at real size
+    camera.position.set(
+      Math.sin(clock * 0.05) * 0.12 * drift,
+      4.6 + Math.sin(clock * 0.062) * 0.14 * drift,
+      2 - Math.sin(clock * 0.043) * 0.4 * drift);
+    /* Look slightly UP, not down. The previous frame tilted DOWN to push the near
+       chandelier off the top edge, which just traded that problem for a floor-heavy
+       one (JoJo: "too much floor"). The chandeliers are now raised in GEOMETRY, so
+       the view can sit level-to-rising and both stay solved: the near fitting lands
+       about 24 degrees off axis against a 20 degree half-angle, outside the frustum
+       with real margin. */
+    camera.lookAt(0, 5.6, FAR_Z);
+  }
+
+  // the 2Hz shadow tick that replaces per-frame shadow rendering
+  frame._shadowT = (frame._shadowT || 0) + dt;
+  if (frame._shadowT > 0.5) { frame._shadowT = 0; renderer.shadowMap.needsUpdate = true; }
+
+  gradePass.uniforms.uTime.value = clock % 10;
+  // GTAO already renders the depth we need, so DoF costs no extra scene pass
+  if (!gradePass.uniforms.tDepth.value && gtao.depthTexture)
+    gradePass.uniforms.tDepth.value = gtao.depthTexture;
+  gradePass.uniforms.uTexel.value.set(1 / innerWidth, 1 / innerHeight);
+  composer.render();
+  if (DEV) paintDev();
+}
+
+let last = performance.now(), lastDrawn = last, fps = 0;
+function loop(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  fps = fps * 0.92 + (1 / Math.max(dt, 1e-3)) * 0.08;
+  last = now; lastDrawn = now;
+  frame(dt);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+/* rAF is suspended when this pane is hidden or the venue machine is alt-tabbed, and one
+   alt-tab must not freeze the projection while guests keep joining. */
+setInterval(() => {
+  const now = performance.now();
+  if (now - lastDrawn > 900) { last = now; lastDrawn = now; frame(0.2); }
+}, 400);
+addEventListener('visibilitychange', () => { last = performance.now(); });
+
+/* ---------- load-in readout ---------- */
+const devEl = document.getElementById('dev');
+const devText = document.getElementById('devtext');
+const bars = document.getElementById('bars');
+const bctx = bars.getContext('2d');
+if (DEV) devEl.classList.add('on');
+function paintDev() {
+  devText.textContent =
+    `fps ${fps.toFixed(0)}  lit ${litCount}/${candleSlots.length}  flames ${flames.list.length}\n` +
+    `camera ${field.live ? 'LIVE' : (field.error || 'off')}  motion ${(field.total * 100).toFixed(0)}%`;
+  bctx.clearRect(0, 0, bars.width, bars.height);
+  const bw = bars.width / field.cols;
+  for (let c = 0; c < field.cols; c++) {
+    const v = field.energy[c];
+    bctx.fillStyle = `rgba(231,201,120,${0.25 + v * 0.75})`;
+    bctx.fillRect(c * bw, bars.height * (1 - v), bw - 1, bars.height * v + 1);
+  }
+}
+
+/* ---------- headless hooks ----------
+   The Browser pane will not composite a hidden tab, so verification drives frames by
+   hand and POSTs the composite to the server's frame sink. */
+window.__step = (dt = 1 / 60, n = 1) => { for (let i = 0; i < n; i++) frame(dt); };
+/* MEASURING, not eyeballing. Every geometry defect on this build (the buried herald,
+   the floating sill, the clipped banners) was found by putting a number on a bounding
+   box, and missed for rounds by looking at it. `__measure('sofa')` gives world extents. */
+window.__scene = scene;
+window.__camera = camera;
+window.__T = THREE;
+window.__candleSlots = candleSlots;   // to audit how many guests light a candle anyone sees   // verification scripts need Box3/Vector3 from the SAME module instance
+/* SCREEN-SPACE bounds of anything named, in pixels, plus how far it runs off each edge.
+   World units cannot answer "is it cropped": that depends on the camera, the fov and the
+   aspect together. Projecting all eight corners of the world box is the only honest test,
+   and it is what settles framing arguments in one number instead of three rounds. */
+window.__screen = (needle) => {
+  const w = new THREE.Box3();
+  let n = 0;
+  scene.traverse(o => {
+    if (!o.isMesh) return;
+    let nm = '', p = o, vis = true;
+    while (p) { if (!p.visible) vis = false; if (p.name) nm += p.name + '/'; p = p.parent; }
+    if (!vis || (needle && !nm.includes(needle))) return;
+    w.expandByObject(o); n++;
+  });
+  if (!n) return 'nothing named ' + needle;
+  const W = renderer.domElement.width, H = renderer.domElement.height;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, behind = 0;
+  for (let i = 0; i < 8; i++) {
+    const v = new THREE.Vector3(i & 1 ? w.max.x : w.min.x, i & 2 ? w.max.y : w.min.y,
+                                i & 4 ? w.max.z : w.min.z);
+    const c = v.clone().applyMatrix4(camera.matrixWorldInverse);
+    if (c.z > -camera.near) behind++;
+    v.project(camera);
+    const px = (v.x * 0.5 + 0.5) * W, py = (-v.y * 0.5 + 0.5) * H;
+    x0 = Math.min(x0, px); x1 = Math.max(x1, px);
+    y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+  }
+  const r = v => Math.round(v);
+  return { meshes: n, viewport: [W, H], behindCamera: behind,
+    box: [r(x0), r(y0), r(x1), r(y1)],
+    offTop: r(Math.max(0, -y0)), offBottom: r(Math.max(0, y1 - H)),
+    offLeft: r(Math.max(0, -x0)), offRight: r(Math.max(0, x1 - W)),
+    fullyVisible: x0 >= 0 && y0 >= 0 && x1 <= W && y1 <= H && behind === 0 };
+};
+/* Where the floor is actually EMPTY, in 4m bands of depth. "The room feels empty" is a
+   real observation but an unactionable one until it says WHERE, and a room this long
+   hides its bare stretches behind whatever is close to camera. */
+window.__occupancy = () => {
+  const bands = {};
+  scene.traverse(o => {
+    if (!o.isMesh || !o.visible) return;
+    const b = new THREE.Box3().setFromObject(o);
+    if (b.min.y > 4.2 || b.max.y < 0.05) return;          // only things standing on the floor
+    if (b.max.x - b.min.x > 18 || b.max.z - b.min.z > 18) return;   // skip the shell and rugs
+    if (Math.min(Math.abs(b.min.x), Math.abs(b.max.x)) > 11.4) return;   // skip wall fittings
+    const z = (b.min.z + b.max.z) / 2;
+    const k = Math.floor(z / 4) * 4;
+    (bands[k] = bands[k] || { n: 0, items: [] }).n++;
+    let nm = '', p = o; while (p) { if (p.name) { nm = p.name; break; } p = p.parent; }
+    if (bands[k].items.length < 6) bands[k].items.push(nm || o.type);
+  });
+  return Object.keys(bands).map(Number).sort((a, b) => b - a)
+    .map(k => ({ z: k + ' to ' + (k + 4), n: bands[k].n, items: [...new Set(bands[k].items)] }));
+};
+window.__measure = (needle) => {
+  const hits = [];
+  scene.traverse(o => {
+    if (!o.isMesh) return;
+    /* Walk the WHOLE ancestor chain, not to the first named node. glTF meshes carry
+       their own author names, so stopping at the first hit never reaches the group we
+       named, and every query came back empty while the models were plainly on screen. */
+    let n = '', p = o, vis = true;
+    while (p) { if (!p.visible) vis = false; if (p.name) n += p.name + '/'; p = p.parent; }
+    if (!vis) return;
+    if (needle && !n.includes(needle)) return;
+    hits.push(o);
+  });
+  if (!hits.length) return 'nothing named ' + needle;
+  const b = new THREE.Box3();
+  for (const h of hits) b.expandByObject(h);
+  const s = new THREE.Vector3(); b.getSize(s);
+  return { meshes: hits.length,
+    min: b.min.toArray().map(v => +v.toFixed(2)),
+    max: b.max.toArray().map(v => +v.toFixed(2)),
+    size: s.toArray().map(v => +v.toFixed(2)) };
+};
+window.__shot = async (name = 'frame') => {
+  frame(0);
+  const r = await fetch('/__save?name=' + encodeURIComponent(name),
+    { method: 'POST', body: renderer.domElement.toDataURL('image/png') });
+  return r.text();                       // never return the data URL, it is megabytes
+};
+/* CLOSE-CROP EVERY NEW ELEMENT. The floating sill and the half-framed windows both
+   shipped because they were only ever judged at full-frame, where a 40px defect is
+   invisible and on a 12ft projection is the first thing anyone sees. Fractions of the
+   frame, so a resolution change does not silently move the crop. */
+window.__crop = async (name, fx, fy, fw, fh, zoom = 2) => {
+  frame(0);
+  const src = renderer.domElement;
+  const sx = Math.round(fx * src.width),  sy = Math.round(fy * src.height);
+  const sw = Math.round(fw * src.width),  sh = Math.round(fh * src.height);
+  const c = document.createElement('canvas');
+  c.width = Math.round(sw * zoom); c.height = Math.round(sh * zoom);
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;          // show the actual pixels, not a resampled lie
+  g.drawImage(src, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  const r = await fetch('/__save?name=' + encodeURIComponent(name),
+    { method: 'POST', body: c.toDataURL('image/png') });
+  return r.text();
+};
+window.__blow = (x = 0, s = 1) => flames.blow(x, s);
+window.__field = field;                    // so the sensor path can be driven in a test
+window.__arrive = (n = 1) => {             // fake guests walking in, for verification
+  for (let i = 0; i < n; i++) arrive({ id: 90000 + seen.size, handle: 'GUEST' }, true);
+};
+window.__choose = (handle = 'VESPER') => { // drive the beat without the server
+  const id = 90500 + seen.size;
+  S.guests.set(id, { id, handle });
+  S.phase = { name: 'choosing', guestId: id };
+  beginChoosing(id);
+};
+window.__idle = () => { S.phase = { name: 'idle', guestId: 0 }; S.vote = null; };
+ window.__taken = (handle = 'LARK') => {
+   const id = 91500 + seen.size;
+   S.guests.set(id, { id, handle });
+   S.phase = { name: 'taken', guestId: id };
+   beginTaken(id);
+ };
+ window.__vote = (a = 34, b = 21) => {
+   S.vote = { q: 'CANDLELIGHT OR MOONLIGHT', a: 'CANDLELIGHT', b: 'MOONLIGHT',
+              tally: { a, b }, open: true };
+   paintVote(S.vote);
+ };
+window.__photo = on => { S.photoMode = !!on; };
+window.__audio = audio;                    // so sound response can be driven in a test
+window.__gtao = gtao;                      // so perf can be isolated in a test
+window.__grade = gradePass;                // so the depth-of-field can be proven, not assumed
+window.__sway = () => chandeliers.map(c => +Math.hypot(c.ang.x, c.ang.y).toFixed(4));
+/* Measure the herald ON SCREEN in pixels. Reasoning about world units and field of
+   view got the wrong answer twice; projecting the actual corners cannot. */
+window.__project = () => {
+  const px = (x, y, z) => {
+    const v = new THREE.Vector3(x, y, z);
+    herald.group.localToWorld(v);
+    v.project(camera);
+    return [Math.round((v.x * 0.5 + 0.5) * innerWidth), Math.round((-v.y * 0.5 + 0.5) * innerHeight)];
+  };
+  const i = herald.inset.geometry.parameters;
+  const p = herald.plate ? herald.plate.geometry.parameters : null;
+  return {
+    viewport: [innerWidth, innerHeight],
+    insetLeftRight: [px(-i.width / 2, 0, 0)[0], px(i.width / 2, 0, 0)[0]],
+    plateLeftRight: p ? [px(-p.width / 2, 0, 0.06)[0], px(p.width / 2, 0, 0.06)[0]] : null,
+    // where the drawn glyphs actually land, from the measured text width
+    textLeftRight: p ? (() => {
+      const half = (window.__lastTextWidth / 1024) * p.width / 2;
+      return [px(-half, 0, 0.06)[0], px(half, 0, 0.06)[0]];
+    })() : null,
+  };
+};
+
+window.__herald = () => {                  // measure, do not eyeball
+  const g = herald.group, i = herald.inset.geometry.parameters, p = herald.plate;
+  return {
+    framePos: g.position.toArray().map(v => +v.toFixed(2)),
+    insetSize: [i.width, i.height],
+    plateSize: p ? [p.geometry.parameters.width, p.geometry.parameters.height] : null,
+    textureSize: p && p.material.map ? [p.material.map.image.width, p.material.map.image.height] : null,
+    textWidthPx: window.__lastTextWidth ?? null,
+  };
+};
+/* So a gust can be VERIFIED and not assumed, and so the sensor can be aimed at load-in:
+   split the lean by which side of the projection each flame is on. */
+window.__lean = () => {
+  let max = 0, sum = 0, out = 0, L = 0, nL = 0, R = 0, nR = 0;
+  for (const f of flames.list) {
+    const t = Math.hypot(f.lean.x, f.lean.y);
+    max = Math.max(max, t); sum += t;
+    if (f.out > 0) out++;
+    if (f.ndc < -0.25) { L += t; nL++; } else if (f.ndc > 0.25) { R += t; nR++; }
+  }
+  const r = n => +n.toFixed(4);
+  return {
+    max: r(max), mean: r(sum / flames.list.length), blownOut: out,
+    left: r(L / Math.max(1, nL)), leftN: nL,
+    right: r(R / Math.max(1, nR)), rightN: nR,
+  };
+};
+window.__state = () => ({
+  lit: litCount, slots: candleSlots.length, flames: flames.list.length,
+  frames: wallFrames.length, camera: field.live ? 'live' : (field.error || 'off'),
+  fps: +fps.toFixed(1),
+});
+
+/* ---------- guests ---------- */
+const seen = new Set();
+function arrive(g, flare) {
+  if (seen.has(g.id)) return;
+  seen.add(g.id); S.guests.set(g.id, g);
+  lightCandle(flare);
+}
+
+/* STATIC MODE. The night itself runs off server.mjs on the screen machine, but the room
+   also gets uploaded to Bluehost file access, which is plain static hosting and cannot run
+   Node. Without this the page still renders (the boot fetch is caught) and then sits there
+   completely dead: no guests, no candles, no beats, which is a poor thing to send someone
+   as a preview. So when the API is not there, the room runs itself. */
+let STATIC_MODE = false;
+const DEMO_NAMES = ['VESPER', 'SABLE', 'MARLOW', 'CASS', 'INES', 'RAVEN', 'JUNO', 'ODILE',
+                    'NIKO', 'SOLENE', 'BRAM', 'ELIO', 'MIRA', 'ZORA', 'AUGUST', 'LUX'];
+
+/* ---------- BACKDROP MODE, THE DEFAULT (JoJo, 2026-08-14) ----------
+   He scrapped the "the mirror has chosen" beat. The room is now a BACKDROP: a live,
+   candlelit hall that reacts to the music and sits behind the night, with no name
+   reveal, no plaque, no vote and no calling anyone out in front of a room.
+
+   The beat code is gated, not deleted, because the geometry and the timing it drives
+   are shared with the photo wall and because reversing a delete costs a rebuild. Opt
+   back in with ?mirror=1.
+
+   The load-bearing consequence: a backdrop has to look its best on the FIRST frame.
+   The old design lit each votive only when a guest joined, so with the beat gone the
+   hall would open dark and stay dark, which is the opposite of what a backdrop is for.
+   In backdrop mode the candles light themselves, staggered so they catch rather than
+   snap on all at once. */
+const BACKDROP = qs.get('mirror') !== '1';
+
+async function boot() {
+  // ?static=1 forces it so the Bluehost behaviour is testable against the live server
+  if (qs.get('static') === '1') { STATIC_MODE = true; return; }
+  try {
+    const s = await (await fetch('/api/state')).json();
+    for (const g of s.guests) arrive(g, false);
+    S.phase = BACKDROP ? { name: 'idle', guestId: 0 } : (s.phase || S.phase);
+    S.mood = s.mood || 'candle';
+    S.photoMode = !!s.photoMode;
+    S.vote = BACKDROP ? null : (s.vote || null);
+    if (S.vote) paintVote(S.vote);
+  } catch { STATIC_MODE = true; }
+}
+
+/* Guests trickle in rather than appearing at once, and the mirror keeps choosing, so a
+   shared link shows the actual activation rhythm instead of a still frame. */
+function runStatic() {
+  let n = 0;
+  const seat = () => {
+    if (n >= 26) return;
+    arrive({ id: 70000 + n, handle: DEMO_NAMES[n % DEMO_NAMES.length] }, true);
+    n++;
+    setTimeout(seat, 420 + (n * 137) % 900);
+  };
+  setTimeout(seat, 900);
+  if (BACKDROP) return;              // a backdrop never calls anyone out
+  setInterval(() => {
+    const ids = [...S.guests.keys()];
+    if (!ids.length) return;
+    const id = ids[(clock * 7 | 0) % ids.length];
+    S.phase = { name: 'choosing', guestId: id };
+    beginChoosing(id);
+  }, 21000);
+}
+
+/* Light the hall for its own sake. Staggered on a curve so the room CATCHES rather than
+   switching on: a backdrop that pops fully lit in one frame reads as a slideshow. */
+function lightTheHall() {
+  let i = 0;
+  const n = Math.min(candleSlots.length, 78);
+  const tick = () => {
+    if (i >= n) return;
+    lightCandle(i < 6);              // the first few flare, the rest just catch
+    i++;
+    setTimeout(tick, 90 + (i * 53) % 210);
+  };
+  tick();
+}
+
+function listen() {
+  if (BACKDROP) lightTheHall();
+  if (STATIC_MODE) { runStatic(); return; }   // no server, no stream to listen to
+  const es = new EventSource('/api/stream');
+  es.addEventListener('arrive', e => arrive(JSON.parse(e.data), true));
+  es.addEventListener('phase', e => {
+    const p = JSON.parse(e.data);
+    const was = S.phase.name;
+    S.phase = p;
+    if (BACKDROP) { S.phase = { name: 'idle', guestId: 0 }; return; }
+    if (p.name === 'choosing' && was !== 'choosing') beginChoosing(p.guestId);
+    if (p.name === 'taken' && was !== 'taken') beginTaken(p.guestId);
+  });
+  es.addEventListener('mood', e => { S.mood = JSON.parse(e.data).mood; });
+  es.addEventListener('photomode', e => { S.photoMode = JSON.parse(e.data).on; });
+  /* ---------- QR LIVE CONTROL ----------
+     A guest's phone reaches the room. The wind starts at THEIR candle, which is the
+     whole point: the server sends the exact place it stood them, so the effect has an
+     origin a person can point at and say "that one is mine". */
+  es.addEventListener('control', e => {
+    const c = JSON.parse(e.data);
+    const ndc = c.place ? c.place.x * 2 - 1 : 0;
+    if (c.action === 'gust') {
+      // blow() pushes flames AWAY from the origin, so the origin sits BEHIND the
+      // guest for the wind to travel in the direction they asked for
+      const dir = Math.sign(c.value) || 1;
+      flames.blow(ndc - dir * 0.6, Math.min(1, Math.abs(c.value) || 0.6));
+    } else if (c.action === 'flare') {
+      for (const f of flames.list) f.birth = Math.max(f.birth, 0.55);
+      flames.blow(ndc, 0.35);
+    } else if (c.action === 'petals') {
+      // a burst from above their candle, not a global reshuffle
+      let n = 0;
+      for (const p of petals) {
+        if (n++ >= 10) break;
+        Object.assign(p, petalSpawn());
+        p.x = (c.place ? (c.place.x - 0.5) * 18 : 0) + (Math.random() - 0.5) * 3;
+        p.y = 9 + Math.random() * 4;
+      }
+    }
+  });
+  es.addEventListener('vote', e => { if (BACKDROP) return; S.vote = JSON.parse(e.data); paintVote(S.vote); });
+  es.addEventListener('tally', e => {
+    if (S.vote) { S.vote.tally = JSON.parse(e.data); paintVote(S.vote); }
+  });
+  es.addEventListener('rebuild', () => location.reload());
+}
+
+const SIM = +(qs.get('sim') || 0);
+if (SIM) {
+  for (let i = 1; i <= SIM; i++) arrive({ id: i, handle: 'GUEST' + i }, false);
+} else {
+  boot().then(listen);
+}
+
+/* Dismiss the loading screen once the room is actually up. Ready = models placed (LITE
+   skips the bake, so that is the true first-visible signal), with a hard cap so a slow
+   phone never gets stuck staring at the splash. Two rAFs so the first real frame has
+   painted under the overlay before it fades, no flash of black. */
+// (loading-screen dismiss is defined near the top of the module, before the top-level
+//  await that loads the models, so it exists when the models-ready line calls it.)
+
+/* The sensors start LAST and their failure is never fatal. Chrome will not prompt for
+   a device without a gesture in some configurations, so a click also retries. The
+   venue kiosk launch passes --use-fake-ui-for-media-stream so neither ever prompts. */
+if (!NOCAM) {
+  field.start().then(ok => { if (!ok) console.warn('motion sensor off:', field.error); });
+}
+if (!NOMIC) {
+  audio.start().then(ok => { if (!ok) console.warn('sound off:', audio.error); });
+}
+addEventListener('pointerdown', () => {
+  if (!NOCAM && !field.live) field.start();
+  if (!NOMIC && !audio.live) audio.start();
+}, { once: true });
+</script>
+</body>
+</html>
