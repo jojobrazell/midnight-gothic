@@ -70,6 +70,24 @@
      50%{transform:scale(1.07,1.14) rotate(2.5deg);opacity:1}}
 </style>
 <div id="dev"><span id="devtext">booting</span><canvas id="bars" width="220" height="26"></canvas></div>
+
+<!-- The door, on the wall itself (JoJo, 2026-08-15): guests scan straight off the
+     projection. Hidden in static mode, where there is no server to join. -->
+<style>
+  #join{position:fixed;left:2.2vh;bottom:2.2vh;z-index:40;display:none;align-items:center;
+    gap:1.6vh;padding:1.4vh 1.8vh;border:1px solid rgba(200,162,74,.42);border-radius:10px;
+    background:rgba(11,7,18,.58);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+  #joinQr{width:11vh;height:11vh;background:#EDE4D3;padding:.7vh;border-radius:6px}
+  #joinQr img{width:100%;height:100%;image-rendering:pixelated;display:block}
+  #join .cap{font:600 1.9vh/1.35 'Cormorant Garamond',Georgia,serif;color:#E7C978;
+    letter-spacing:.22em;text-transform:uppercase;margin:0}
+  #join .url{font:700 1.55vh/1.4 monospace;color:rgba(237,228,211,.72);margin:.5vh 0 0}
+</style>
+<div id="join" aria-hidden="true">
+  <div id="joinQr"></div>
+  <div><p class="cap">Light a candle</p><p class="url" id="joinUrl"></p></div>
+</div>
+<script src="vendor/qrcode/qrcode.js"></script>
 <script type="module">
 /* MIDNIGHT MIRROR, the projection.
  *
@@ -2353,7 +2371,26 @@ async function boot() {
     S.photoMode = !!s.photoMode;
     S.vote = BACKDROP ? null : (s.vote || null);
     if (S.vote) paintVote(S.vote);
+    showJoinCard();
   } catch { STATIC_MODE = true; }
+}
+
+/* The QR card on the wall. Only when a server answered: in static mode there is
+   nothing to join, and a QR to a dead door is worse than no QR. */
+function showJoinCard() {
+  try {
+    const url = location.origin + '/phone.html';
+    const el = document.getElementById('joinQr');
+    if (window.qrcode && el) {
+      const q = window.qrcode(0, 'M'); q.addData(url); q.make();
+      el.innerHTML = q.createImgTag(8, 2);
+      const img = el.querySelector('img');
+      if (img) { img.removeAttribute('width'); img.removeAttribute('height');
+        img.alt = 'Scan to light a candle'; }
+    }
+    document.getElementById('joinUrl').textContent = location.host + '/phone.html';
+    document.getElementById('join').style.display = 'flex';
+  } catch {}
 }
 
 /* Guests trickle in rather than appearing at once, and the mirror keeps choosing, so a

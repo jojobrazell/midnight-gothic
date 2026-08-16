@@ -62,9 +62,12 @@ const CONTROL = {
      instant; anything longer and half the floor gets refused for tapping together,
      which is the fastest way to teach a room that the buttons do not work. */
   gaps: {
+    /* Halved for flare and petals (JoJo, night-of ruling 2026-08-15): the 20s/15s
+       packed-floor numbers read as broken buttons at a party this size. The room
+       budget above stays as the melt-guard if the floor does fill. */
     gust:   { self:  2500, room:  300 },
-    flare:  { self: 20000, room: 6000 },
-    petals: { self: 15000, room: 4000 },
+    flare:  { self:  8000, room: 3500 },
+    petals: { self:  6000, room: 2500 },
     mood:   { self:  6000, room:    0 },
     summon: { self: 45000, room:    0 },
   },
