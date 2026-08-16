@@ -2433,7 +2433,7 @@ function showJoinCard() {
       if (img) { img.removeAttribute('width'); img.removeAttribute('height');
         img.alt = 'Scan to light a candle'; }
     }
-    document.getElementById('joinUrl').textContent = location.host + '/phone.html';
+    document.getElementById('joinUrl').textContent = url.replace(/^https?:\/\//, '');
     document.getElementById('join').style.display = 'flex';
   } catch {}
 }
