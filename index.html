@@ -1850,7 +1850,7 @@ const gradePass = new ShaderPass({
          whole frame, weighted toward the shadows so flames stay flames while the
          ROOM is unmistakably the chosen colour. */
       if (uMoodAmt > 0.003) {
-        float mw = uMoodAmt * (0.45 + 0.55 * sw);
+        float mw = uMoodAmt * (0.62 + 0.38 * sw);
         c.rgb = mix(c.rgb, vec3(lum2) * uMoodTint, mw);
       }
       // monochrome luma-weighted grain: film emulsion, not sensor noise
@@ -2122,15 +2122,15 @@ const MOODS = {
   candle: { warm: 1.00, cool: 1.00, warmTint: null,     coolTint: null,     mix: 0,
             wash: [1.00, 1.00, 1.00], amt: 0 },
   moon:   { warm: 0.30, cool: 2.20, warmTint: null,     coolTint: null,     mix: 0,
-            wash: [0.62, 0.74, 1.42], amt: 0.42 },
+            wash: [0.58, 0.72, 1.52], amt: 0.52 },
   ember:  { warm: 1.30, cool: 0.18, warmTint: 0xFF4A22, coolTint: 0xB03A20, mix: 0.60,
-            wash: [1.58, 0.58, 0.36], amt: 0.48 },
+            wash: [1.66, 0.52, 0.30], amt: 0.58 },
   violet: { warm: 0.70, cool: 1.55, warmTint: 0xC06BFF, coolTint: 0x7E4DE0, mix: 0.55,
-            wash: [1.02, 0.55, 1.55], amt: 0.48 },
+            wash: [1.10, 0.48, 1.66], amt: 0.58 },
   rose:   { warm: 0.92, cool: 0.70, warmTint: 0xFF6FA8, coolTint: 0xE070A8, mix: 0.55,
-            wash: [1.50, 0.66, 0.96], amt: 0.45 },
+            wash: [1.62, 0.58, 0.98], amt: 0.56 },
   jade:   { warm: 0.62, cool: 1.25, warmTint: 0x63E6A8, coolTint: 0x2FA06C, mix: 0.50,
-            wash: [0.55, 1.35, 0.85], amt: 0.45 },
+            wash: [0.46, 1.48, 0.80], amt: 0.58 },
 };
 const moodLights = [];
 scene.traverse(o => {
