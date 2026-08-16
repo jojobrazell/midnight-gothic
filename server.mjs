@@ -32,6 +32,48 @@ const DATA = join(ROOT, 'data');
 const STATE_FILE = join(DATA, 'hall.json');
 const ADMIN_KEY = process.env.MIRROR_ADMIN_KEY || 'midnight2026';
 
+/* ---------- lead backup to Firestore ----------
+   data/ is EPHEMERAL on a PaaS free tier: a redeploy or a spin-down wipes the
+   disk, and the emails are the deliverable of the night. So every join is also
+   fired at Firestore, write-only, fire-and-forget: a Firestore failure logs and
+   never blocks the candle. Same pattern and key as the riot wall next door.
+   FIREBASE_API_KEY is env-only ON PURPOSE: this repo is public. */
+const FB = {
+  project: process.env.FIREBASE_PROJECT_ID || 'mixr-project-board',
+  apiKey: process.env.FIREBASE_API_KEY || '',
+  collection: process.env.FIREBASE_COLLECTION || 'midnight-gothic-leads',
+  token: '', tokenAt: 0,
+};
+if (!FB.apiKey) console.log('lead backup to Firestore is OFF: set FIREBASE_API_KEY to enable');
+async function fbToken() {
+  if (FB.token && Date.now() - FB.tokenAt < 50 * 60 * 1000) return FB.token;
+  const r = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FB.apiKey}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ returnSecureToken: true }) });
+  if (!r.ok) throw new Error('firebase auth ' + r.status);
+  const j = await r.json();
+  FB.token = j.idToken; FB.tokenAt = Date.now();
+  return FB.token;
+}
+function pushLead(g) {
+  if (!FB.project || !FB.apiKey) return;
+  (async () => {
+    const token = await fbToken();
+    const r = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${FB.project}/databases/(default)/documents/${encodeURIComponent(FB.collection)}`,
+      { method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ fields: {
+          handle: { stringValue: g.handle },
+          email:  { stringValue: g.email },
+          event:  { stringValue: 'slowsie-2026-08-15' },
+          joined: { timestampValue: new Date(g.ts).toISOString() },
+        } }) });
+    if (!r.ok) throw new Error('firestore write ' + r.status);
+  })().catch(e => console.warn('lead backup failed:', e.message));
+}
+
 // Beat timing. Overridable from /admin at load-in, because a room that is filling
 // wants the mirror choosing often and a packed room wants it rarer.
 const DEFAULTS = {
@@ -469,6 +511,7 @@ createServer(async (req, res) => {
       guests.set(g.id, g);
       persist();
       console.log(`guest #${g.id} ${handle} stepped through`);
+      pushLead(g);
       return json(200, { id: g.id, handle: g.handle, mood, phase });
     }
 

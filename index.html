@@ -74,9 +74,13 @@
 <!-- The door, on the wall itself (JoJo, 2026-08-15): guests scan straight off the
      projection. Hidden in static mode, where there is no server to join. -->
 <style>
+  /* no card behind it (JoJo): just the QR tile and the words, floating on the room */
   #join{position:fixed;left:2.2vh;bottom:2.2vh;z-index:40;display:none;align-items:center;
-    gap:1.6vh;padding:1.4vh 1.8vh;border:1px solid rgba(200,162,74,.42);border-radius:10px;
-    background:rgba(11,7,18,.58);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+    gap:1.6vh}
+  #join .cap,#join .url{text-shadow:0 1px 8px rgba(0,0,0,.85)}
+  #micHint{position:fixed;left:2.2vh;bottom:13vh;z-index:40;display:none;
+    font:600 1.5vh/1.4 'Cormorant Garamond',Georgia,serif;color:rgba(233,169,184,.85);
+    letter-spacing:.12em;text-shadow:0 1px 8px rgba(0,0,0,.85)}
   #joinQr{width:7.5vh;height:7.5vh;background:#EDE4D3;padding:.5vh;border-radius:5px}
   #joinQr img{width:100%;height:100%;image-rendering:pixelated;display:block}
   #join .cap{font:600 1.6vh/1.35 'Cormorant Garamond',Georgia,serif;color:#E7C978;
@@ -87,6 +91,7 @@
   <div id="joinQr"></div>
   <div><p class="cap">Interact with the room</p><p class="url" id="joinUrl"></p></div>
 </div>
+<div id="micHint">click the room once, then Allow the microphone: the flames dance to the music</div>
 <script src="vendor/qrcode/qrcode.js"></script>
 <script type="module">
 /* MIDNIGHT MIRROR, the projection.
@@ -1579,6 +1584,7 @@ const petalSpawn = () => ({
   spd: 0.35 + Math.random() * 0.4, ph: Math.random() * 6.28,
   spin: (Math.random() - 0.5) * 1.6,
 });
+let tornadoUntil = 0, tornadoX = 0, tornadoZ = -14;   // the petals control's crazy mode
 for (let i = 0; i < PETALS; i++) {
   // tinted DOWN: a petal is a dark silhouette with a rose rim, not pink confetti
   const s = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -1971,8 +1977,26 @@ function frame(dt) {
   }
   motes.points.geometry.attributes.position.needsUpdate = true;
 
-  // petals: fall, sway, spin, fade in near the top and out near the floor
+  // petals: fall, sway, spin, fade in near the top and out near the floor.
+  // Unless a guest called the TORNADO (JoJo: "have it go crazy"): for a few
+  // seconds every petal is dragged into a spinning column above their candle,
+  // climbing as it tightens, then the room lets them all fall at once.
+  const twisting = performance.now() < tornadoUntil;
   for (const p of petals) {
+    if (twisting) {
+      const dx = p.x - tornadoX, dz = p.z - tornadoZ;
+      let r = Math.hypot(dx, dz), a = Math.atan2(dz, dx);
+      a += dt * (5.5 + 2.5 / (0.4 + r * 0.25));         // faster near the core
+      r += (1.2 - r) * dt * 2.2;                        // drawn into the column
+      p.x = tornadoX + Math.cos(a) * r;
+      p.z = tornadoZ + Math.sin(a) * r;
+      p.y += dt * (2.8 + Math.sin(clock * 3 + p.ph));   // it climbs
+      if (p.y > 11) p.y = 0.4;
+      p.s.material.rotation += dt * 8;
+      p.s.position.set(p.x, p.y, p.z);
+      p.s.material.opacity = 0.8;
+      continue;
+    }
     p.y -= p.spd * dt * amp;
     p.x += Math.sin(clock * 0.7 + p.ph) * dt * 0.35 * amp;
     p.s.material.rotation += dt * p.spin * amp;
@@ -2115,22 +2139,24 @@ function frame(dt) {
    mood is a designed grade over those two groups: scalars on intensity plus an
    optional tint. The crossfade runs in the frame loop so a turn reads as the room
    BREATHING into a new light, never a cut. */
-/* Each mood: light-rig scalars/tints PLUS a full-frame wash (tint + amt) fed to
-   the grade shader, because the rig alone read too subtle from the floor (JoJo,
-   2026-08-15 late). candle is the untouched hero look: amt 0. */
+/* Each mood recolours the FIRE ITSELF, not the room (JoJo, final ruling of the
+   night: "keep the room color the same, just change the lighting"). flame tints
+   every flame sprite; warm lights follow the flame at high mix so the light a
+   candle casts agrees with the flame that casts it; the wash from the earlier
+   attempt stays wired but parked at 0. */
 const MOODS = {
-  candle: { warm: 1.00, cool: 1.00, warmTint: null,     coolTint: null,     mix: 0,
-            wash: [1.00, 1.00, 1.00], amt: 0 },
-  moon:   { warm: 0.30, cool: 2.20, warmTint: null,     coolTint: null,     mix: 0,
-            wash: [0.58, 0.72, 1.52], amt: 0.52 },
-  ember:  { warm: 1.30, cool: 0.18, warmTint: 0xFF4A22, coolTint: 0xB03A20, mix: 0.60,
-            wash: [1.66, 0.52, 0.30], amt: 0.58 },
-  violet: { warm: 0.70, cool: 1.55, warmTint: 0xC06BFF, coolTint: 0x7E4DE0, mix: 0.55,
-            wash: [1.10, 0.48, 1.66], amt: 0.58 },
-  rose:   { warm: 0.92, cool: 0.70, warmTint: 0xFF6FA8, coolTint: 0xE070A8, mix: 0.55,
-            wash: [1.62, 0.58, 0.98], amt: 0.56 },
-  jade:   { warm: 0.62, cool: 1.25, warmTint: 0x63E6A8, coolTint: 0x2FA06C, mix: 0.50,
-            wash: [0.46, 1.48, 0.80], amt: 0.58 },
+  candle: { warm: 1.00, cool: 1.00, flame: 0xFFD9A0, warmTint: null,     coolTint: null,     mix: 0,
+            wash: [1, 1, 1], amt: 0 },
+  moon:   { warm: 0.55, cool: 1.80, flame: 0x9FC2FF, warmTint: 0x9FC2FF, coolTint: null,     mix: 0.80,
+            wash: [1, 1, 1], amt: 0 },
+  ember:  { warm: 1.35, cool: 0.30, flame: 0xFF4A1E, warmTint: 0xFF4A1E, coolTint: 0xB03A20, mix: 0.80,
+            wash: [1, 1, 1], amt: 0 },
+  violet: { warm: 1.10, cool: 1.10, flame: 0xC77DFF, warmTint: 0xC77DFF, coolTint: 0x7E4DE0, mix: 0.80,
+            wash: [1, 1, 1], amt: 0 },
+  rose:   { warm: 1.10, cool: 0.75, flame: 0xFF7FB0, warmTint: 0xFF7FB0, coolTint: 0xE070A8, mix: 0.80,
+            wash: [1, 1, 1], amt: 0 },
+  jade:   { warm: 1.05, cool: 1.00, flame: 0x5FE8A0, warmTint: 0x5FE8A0, coolTint: 0x2FA06C, mix: 0.80,
+            wash: [1, 1, 1], amt: 0 },
 };
 const moodLights = [];
 scene.traverse(o => {
@@ -2143,6 +2169,7 @@ scene.traverse(o => {
 let appliedMood = null;
 const _moodC = new THREE.Color();
 const washTarget = new THREE.Vector3(1, 1, 1);
+const flameTarget = new THREE.Color(0xFFD9A0);
 let amtTarget = 0;
 function moodTick(dt) {
   if (S.mood !== appliedMood) {
@@ -2156,12 +2183,17 @@ function moodTick(dt) {
     }
     washTarget.fromArray(m.wash);
     amtTarget = m.amt;
+    flameTarget.set(m.flame || 0xFFD9A0);
   }
   const k = 1 - Math.exp(-dt / 0.9);
   for (const e of moodLights) {
     e.l.intensity += (e.tI - e.l.intensity) * k;
     e.l.color.lerp(e.tC, k);
   }
+  /* the flames themselves. Walked live off flames.list, not a snapshot, so a
+     candle lit by a guest AFTER a mood turn still catches the room's colour. */
+  for (const f of flames.list)
+    for (const p of f.parts) p.s.material.color.lerp(flameTarget, k);
   gradePass.uniforms.uMoodTint.value.lerp(washTarget, k);
   gradePass.uniforms.uMoodAmt.value += (amtTarget - gradePass.uniforms.uMoodAmt.value) * k;
 }
@@ -2538,14 +2570,11 @@ function listen() {
       for (const f of flames.list) f.birth = Math.max(f.birth, 0.55);
       flames.blow(ndc, 0.35);
     } else if (c.action === 'petals') {
-      // a burst from above their candle, not a global reshuffle
-      let n = 0;
-      for (const p of petals) {
-        if (n++ >= 10) break;
-        Object.assign(p, petalSpawn());
-        p.x = (c.place ? (c.place.x - 0.5) * 18 : 0) + (Math.random() - 0.5) * 3;
-        p.y = 9 + Math.random() * 4;
-      }
+      // THE TORNADO (JoJo, night-of): every petal in the room spirals into a
+      // column above the caller's candle for four seconds
+      tornadoX = c.place ? (c.place.x - 0.5) * 18 : 0;
+      tornadoZ = -14;
+      tornadoUntil = performance.now() + 4200;
     }
   });
   es.addEventListener('vote', e => { if (BACKDROP) return; S.vote = JSON.parse(e.data); paintVote(S.vote); });
@@ -2575,6 +2604,13 @@ if (SIM) {
 if (!NOCAM) {
   field.start().then(ok => { if (!ok) console.warn('motion sensor off:', field.error); });
 }
+/* SAY IT ON THE WALL when the mic is not live (JoJo tested, saw nothing, and the
+   reason was an unanswered permission prompt). The whisper appears after a few
+   seconds without a live mic and leaves the moment sound flows. */
+setInterval(() => {
+  const el = document.getElementById('micHint');
+  if (el) el.style.display = (!NOMIC && !audio.live && !STATIC_MODE) ? 'block' : 'none';
+}, 3000);
 if (!NOMIC) {
   audio.start().then(ok => { if (!ok) console.warn('sound off:', audio.error); });
 }
