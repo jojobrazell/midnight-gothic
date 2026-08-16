@@ -141,7 +141,8 @@ const MIME = {
 /* ---------- state ---------- */
 let guests = new Map();   // id -> { id, handle, email, ts, look, chosen, taken, takenAt, banished }
 let nextId = 1;
-let mood = 'candle';      // 'candle' (stay) or 'moon' (run). Set by the midnight vote.
+let mood = 'candle';
+let moodBy = null;               // handle of whoever last took the room      // 'candle' (stay) or 'moon' (run). Set by the midnight vote.
 let photoMode = false;    // the step-and-repeat drape: staff drops it for photo runs
 let cfg = { ...DEFAULTS };
 let phase = { name: 'idle', guestId: 0, until: 0 };
@@ -380,7 +381,7 @@ function meControl(id) {
    this and is immediately correct, rather than waiting for the next broadcast. */
 function controlState() {
   return {
-    mood, tally: moodTally(), need: moodNeed(),
+    mood, moodBy, tally: moodTally(), need: moodNeed(),
     moodWindowMs: CONTROL.moodWindowMs,
     turnedAt: lastMoodTurn,
     holdUntil: lastMoodTurn ? lastMoodTurn + CONTROL.moodHoldMs : 0,
@@ -568,11 +569,14 @@ createServer(async (req, res) => {
            couple, so the fight has a rhythm instead of a strobe. */
         value = MOODS.includes(raw.value) ? raw.value : 'candle';
         if (mood !== value) {
-          mood = value; persist(); broadcast('mood', { mood });
+          mood = value; moodBy = g.handle; persist();
+          /* WHO took it rides the event: the wall names the taker and every
+             phone shows who holds the room, which is what makes it a fight. */
+          broadcast('mood', { mood, by: moodBy });
           out.turned = true;
           console.log(`the room turned to ${mood} by #${g.id} ${g.handle}`);
         }
-        extra = { mood };
+        extra = { mood, by: moodBy };
       }
 
       if (action === 'summon') {
@@ -615,7 +619,7 @@ createServer(async (req, res) => {
     /* --- backfill: the hall rebuilds itself exactly from this --- */
     if (u.pathname === '/api/state') {
       return json(200, {
-        mood, phase, cfg, photoMode, control: controlState(),
+        mood, moodBy, phase, cfg, photoMode, control: controlState(),
         vote: vote ? { q: vote.q, a: vote.a, b: vote.b, tally: vote.tally, open: vote.open } : null,
         guests: [...guests.values()].filter(g => !g.banished && g.look).map(pub),
         counts: { total: guests.size, inHall: eligible().length },
@@ -718,7 +722,8 @@ createServer(async (req, res) => {
       const raw = JSON.parse(await readBody(req, 4000));
       if (!staff(raw)) return json(403, { error: 'nope' });
       mood = MOODS.includes(raw.mood) ? raw.mood : 'candle';
-      persist(); broadcast('mood', { mood });
+      moodBy = null;                    // the house outranks every guest
+      persist(); broadcast('mood', { mood, by: null });
       settleMood();   // staff outrank the tally, or the next tap undoes them
       return json(200, { mood });
     }

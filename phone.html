@@ -260,7 +260,8 @@ function listen() {
   });
   es.addEventListener('return', e => { if (JSON.parse(e.data).id === me.id) hideBeat(); });
   es.addEventListener('arrive', () => refresh());
-  es.addEventListener('mood', e => { mood = JSON.parse(e.data).mood; paintMood(); tick(); });
+  es.addEventListener('mood', e => { const d = JSON.parse(e.data);
+    mood = d.mood; moodBy = d.by || null; paintMood(); tick(); });
   es.addEventListener('vote', e => applyVote(JSON.parse(e.data)));
   es.addEventListener('control', e => {
     const c = JSON.parse(e.data);
@@ -302,7 +303,7 @@ const CTL = [...document.querySelectorAll('#ctlBox .cbtn, #ctlBox .sw')];
 for (const b of CTL) b.dataset.label = b.textContent;
 const lockAct = {};
 let lockAll = 0, voteOpen = false, sayUntil = 0;
-let mood = 'candle', myMood = null;
+let mood = 'candle', moodBy = null, myMood = null;
 const MOODNAME = { candle: 'candlelight', moon: 'moonlight', ember: 'ember',
                    violet: 'violet', rose: 'rose', jade: 'jade' };
 const ROOMIS = { candle: 'The room is candlelit', moon: 'The room is under moonlight',
@@ -323,6 +324,7 @@ function applyState(s) {
   if (!s) return;
   voteOpen = !!s.voteOpen;
   mood = s.mood || mood;
+  if ('moodBy' in s) moodBy = s.moodBy;
   paintMood();
   tick();
 }
@@ -331,9 +333,12 @@ function applyState(s) {
    over the room. The line under the swatches always tells the truth about whose
    light the room is in right now. */
 function paintMood() {
+  const base = ROOMIS[mood] || ROOMIS.candle;
   $('#moodMsg').textContent =
     voteOpen ? 'The room is voting. Answer that first.'
-    : ROOMIS[mood] || ROOMIS.candle;
+    : moodBy ? (moodBy === (me && me.handle) ? base + '. It is yours.'
+                                             : base + '. ' + moodBy + ' holds it.')
+    : base;
 }
 
 /* One ticker for every button. It renders nothing but the locks the server gave us,
@@ -385,7 +390,9 @@ async function ctlSend(btn) {
   applyState(data.state);
   applyMe(data);
   if (action === 'mood') {
-    mood = data.mood || mood; paintMood();
+    mood = data.mood || mood;
+    if ('by' in data) moodBy = data.by;
+    paintMood();
     if (data.turned) say('You turned the room to ' + (MOODNAME[value] || value) + '. Hold it if you can.');
     else say('The room is already ' + (MOODNAME[value] || value) + '.');
   }
