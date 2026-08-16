@@ -172,8 +172,7 @@
       <button type="button" class="sw" data-act="mood" data-val="ember" aria-label="Ember"></button>
       <button type="button" class="sw" data-act="mood" data-val="violet" aria-label="Violet"></button>
     </div>
-    <div class="meter"><i id="moodBar"></i></div>
-    <p class="count" id="moodMsg" style="margin-top:7px">The room is candlelit</p>
+    <p class="count" id="moodMsg" style="margin-top:9px">The room is candlelit</p>
     <p class="fine" id="ctlMsg" style="min-height:17px;margin-top:9px"></p>
   </div>
 </section>
@@ -257,14 +256,14 @@ function listen() {
   });
   es.addEventListener('return', e => { if (JSON.parse(e.data).id === me.id) hideBeat(); });
   es.addEventListener('arrive', () => refresh());
-  es.addEventListener('mood', e => { mood = JSON.parse(e.data).mood; paintMood(null, 0, mood); });
+  es.addEventListener('mood', e => { mood = JSON.parse(e.data).mood; paintMood(); tick(); });
   es.addEventListener('vote', e => applyVote(JSON.parse(e.data)));
   es.addEventListener('control', e => {
     const c = JSON.parse(e.data);
     /* somebody else's beat is landing in the room right now. Grey the button while it
        plays rather than let this phone fire a request the server is going to refuse. */
     if (c.gapUntil && (!me || c.from !== me.id)) lockAct[c.action] = c.gapUntil;
-    if (c.action === 'mood' && c.tally) { mood = c.mood || mood; paintMood(c.tally, c.need, c.mood); }
+    if (c.action === 'mood' && c.mood) { mood = c.mood; paintMood(); }
     tick();
   });
   es.addEventListener('controlstate', e => applyState(JSON.parse(e.data)));
@@ -318,23 +317,17 @@ function applyState(s) {
   if (!s) return;
   voteOpen = !!s.voteOpen;
   mood = s.mood || mood;
-  paintMood(s.tally, s.need, s.mood);
+  paintMood();
   tick();
 }
 
-/* The tally IS the mood control. The room turns when enough of the floor asks, so
-   the count has to be visible while it builds, or the swatch reads as broken every
-   time one person taps it and nothing happens. */
-function paintMood(tally, need, room) {
-  const t = tally || {};
-  const n = Math.max(1, need || 1);
-  let lead = null, top = 0;
-  for (const k in t) if (t[k] > top) { top = t[k]; lead = k; }
-  $('#moodBar').style.width = Math.min(100, (top / n) * 100) + '%';
+/* No vote (JoJo ruling, night-of): whoever taps it turns it, and the floor fights
+   over the room. The line under the swatches always tells the truth about whose
+   light the room is in right now. */
+function paintMood() {
   $('#moodMsg').textContent =
     voteOpen ? 'The room is voting. Answer that first.'
-    : top ? `${top} of ${n} asking for ${MOODNAME[lead] || lead}`
-    : ROOMIS[room || mood] || ROOMIS.candle;
+    : ROOMIS[mood] || ROOMIS.candle;
 }
 
 /* One ticker for every button. It renders nothing but the locks the server gave us,
@@ -346,8 +339,8 @@ function tick() {
     const a = b.dataset.act;
     const left = Math.ceil((Math.max(lockAll, lockAct[a] || 0) - now) / 1000);
     if (b.classList.contains('sw')) {
-      // swatches carry no text: state is the ring, not a countdown
-      b.classList.toggle('on', myMood === b.dataset.val);
+      // the ring marks the room's CURRENT light, the thing being fought over
+      b.classList.toggle('on', mood === b.dataset.val);
       b.disabled = left > 0 || voteOpen;
       continue;
     }
@@ -386,8 +379,9 @@ async function ctlSend(btn) {
   applyState(data.state);
   applyMe(data);
   if (action === 'mood') {
-    if (data.tally) paintMood(data.tally, data.need, data.mood);
-    if (data.turned) { mood = value; say('The room turns to ' + (MOODNAME[value] || value) + '.'); }
+    mood = data.mood || mood; paintMood();
+    if (data.turned) say('You turned the room to ' + (MOODNAME[value] || value) + '. Hold it if you can.');
+    else say('The room is already ' + (MOODNAME[value] || value) + '.');
   }
   tick();
 }

@@ -72,7 +72,7 @@ const CONTROL = {
     gust:   { self:  2500, room:  300 },
     flare:  { self:  8000, room: 3500 },
     petals: { self:  6000, room: 2500 },
-    mood:   { self:  6000, room:    0 },
+    mood:   { self:  4000, room: 2000 },
     summon: { self: 45000, room:    0 },
   },
   moodWindowMs: 45000,  // how long a guest's standing mood request keeps counting
@@ -519,20 +519,17 @@ createServer(async (req, res) => {
       let extra = {};
 
       if (action === 'mood') {
+        /* No vote (JoJo, 2026-08-15 night-of): whoever taps it turns it, and the
+           floor fights over the room. The action gaps above are the only referee:
+           one guest can retake every few seconds, the room flips at most every
+           couple, so the fight has a rhythm instead of a strobe. */
         value = MOODS.includes(raw.value) ? raw.value : 'candle';
-        moodReq.set(g.id, { side: value, at: now });
-        const tally = moodTally(), need = moodNeed();
-        /* The flip is a ROOM event, not a control event: the projection and every
-           phone already turn on 'mood', and re-signalling it under a second name is
-           how two code paths drift apart. The control event carries the tally so the
-           room can watch the vote build. */
-        if (tally[value] >= need && mood !== value && now - lastMoodTurn > CONTROL.moodHoldMs) {
-          mood = value; lastMoodTurn = now; moodReq.clear();
-          persist(); broadcast('mood', { mood });
+        if (mood !== value) {
+          mood = value; persist(); broadcast('mood', { mood });
           out.turned = true;
-          console.log(`the room turned to ${mood} by ${need} guests`);
+          console.log(`the room turned to ${mood} by #${g.id} ${g.handle}`);
         }
-        extra = { tally: moodTally(), need, mood };
+        extra = { mood };
       }
 
       if (action === 'summon') {
