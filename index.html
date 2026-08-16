@@ -2096,11 +2096,53 @@ function frame(dt) {
   if (DEV) paintDev();
 }
 
+/* ---------- ROOM MOODS (JoJo, 2026-08-15: guests turn the colors) ----------
+   The mood event always reached this page and never touched a single light; the
+   candle/moon flip was plumbing with no fixture. This is the fixture. Every light
+   in the rig is classified warm or cool by its own color at build time, and each
+   mood is a designed grade over those two groups: scalars on intensity plus an
+   optional tint. The crossfade runs in the frame loop so a turn reads as the room
+   BREATHING into a new light, never a cut. */
+const MOODS = {
+  candle: { warm: 1.00, cool: 1.00, warmTint: null,     coolTint: null,     mix: 0    },
+  moon:   { warm: 0.30, cool: 2.00, warmTint: null,     coolTint: null,     mix: 0    },
+  ember:  { warm: 1.30, cool: 0.18, warmTint: 0xFF4A22, coolTint: 0xB03A20, mix: 0.60 },
+  violet: { warm: 0.70, cool: 1.55, warmTint: 0xC06BFF, coolTint: 0x7E4DE0, mix: 0.55 },
+};
+const moodLights = [];
+scene.traverse(o => {
+  if (o.isLight) {
+    const c = o.color;
+    moodLights.push({ l: o, baseI: o.intensity, baseC: c.clone(),
+      warm: c.r >= c.b, tI: o.intensity, tC: c.clone() });
+  }
+});
+let appliedMood = null;
+const _moodC = new THREE.Color();
+function moodTick(dt) {
+  if (S.mood !== appliedMood) {
+    appliedMood = S.mood;
+    const m = MOODS[appliedMood] || MOODS.candle;
+    for (const e of moodLights) {
+      e.tI = e.baseI * (e.warm ? m.warm : m.cool);
+      e.tC.copy(e.baseC);
+      const tint = e.warm ? m.warmTint : m.coolTint;
+      if (tint) e.tC.lerp(_moodC.set(tint), m.mix);
+    }
+  }
+  const k = 1 - Math.exp(-dt / 0.9);
+  for (const e of moodLights) {
+    e.l.intensity += (e.tI - e.l.intensity) * k;
+    e.l.color.lerp(e.tC, k);
+  }
+}
+
 let last = performance.now(), lastDrawn = last, fps = 0;
 function loop(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   fps = fps * 0.92 + (1 / Math.max(dt, 1e-3)) * 0.08;
   last = now; lastDrawn = now;
+  moodTick(dt);
   frame(dt);
   requestAnimationFrame(loop);
 }
@@ -2109,7 +2151,7 @@ requestAnimationFrame(loop);
    alt-tab must not freeze the projection while guests keep joining. */
 setInterval(() => {
   const now = performance.now();
-  if (now - lastDrawn > 900) { last = now; lastDrawn = now; frame(0.2); }
+  if (now - lastDrawn > 900) { last = now; lastDrawn = now; moodTick(0.2); frame(0.2); }
 }, 400);
 addEventListener('visibilitychange', () => { last = performance.now(); });
 

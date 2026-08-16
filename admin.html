@@ -61,6 +61,8 @@
   <div class="grid2" style="margin-top:10px">
     <button class="btn ghost" id="moodCandle">Candlelight</button>
     <button class="btn ghost" id="moodMoon">Moonlight</button>
+    <button class="btn ghost" id="moodEmber">Ember</button>
+    <button class="btn ghost" id="moodViolet">Violet</button>
   </div>
 </div>
 
@@ -142,6 +144,8 @@ $('#photoOn').onclick  = () => post('/api/photomode', { on: true });
 $('#photoOff').onclick = () => post('/api/photomode', { on: false });
 $('#moodCandle').onclick = () => post('/api/mood', { mood: 'candle' });
 $('#moodMoon').onclick   = () => post('/api/mood', { mood: 'moon' });
+$('#moodEmber').onclick  = () => post('/api/mood', { mood: 'ember' });
+$('#moodViolet').onclick = () => post('/api/mood', { mood: 'violet' });
 $('#voteOpen').onclick = () => post('/api/vote/open',
   { q: $('#vq').value, a: $('#va').value, b: $('#vb').value });
 $('#voteClose').onclick = async () => {

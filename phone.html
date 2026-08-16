@@ -82,6 +82,23 @@
   .votebtns{display:flex;gap:10px}
   .votebtns .btn{flex:1}
 
+  /* Turn the room: four designed moods as swatches. The room turns when enough of
+     the floor asks, so the meter shows the vote building; a lone tap that "does
+     nothing" without a meter reads as a broken button. */
+  .sws{display:flex;justify-content:center;gap:14px;margin-top:9px}
+  .sw{width:46px;height:46px;border-radius:9999px;cursor:pointer;padding:0;
+    border:2px solid rgba(255,255,255,.16)}
+  .sw[data-val="candle"]{background:radial-gradient(circle at 40% 35%,#F6E2A8,#C8A24A)}
+  .sw[data-val="moon"]{background:radial-gradient(circle at 40% 35%,#E3E1F2,#8E8BB8)}
+  .sw[data-val="ember"]{background:radial-gradient(circle at 40% 35%,#FF8A5C,#A8321C)}
+  .sw[data-val="violet"]{background:radial-gradient(circle at 40% 35%,#CDA0FF,#6B3FB8)}
+  .sw.on{border-color:var(--gold);box-shadow:0 0 0 3px rgba(200,162,74,.35)}
+  .sw:disabled{opacity:.36;cursor:default}
+  .meter{height:4px;border-radius:2px;background:rgba(255,255,255,.09);overflow:hidden;
+    margin-top:10px}
+  .meter i{display:block;height:100%;width:0;transition:width .5s ease;
+    background:linear-gradient(90deg,var(--gold-mid),var(--gold))}
+
   /* the chosen takeover. The one hard beat, on the phone as well as the screen. */
   #flash{
     position:fixed;inset:0;display:none;flex-direction:column;justify-content:center;align-items:center;
@@ -147,6 +164,16 @@
       <button type="button" class="cbtn" data-act="flare">Flare the candles</button>
       <button type="button" class="cbtn" data-act="petals">Scatter petals</button>
     </div>
+    <div class="rule" style="margin-top:12px"></div>
+    <p class="sub" style="margin:9px 0 0">Turn the room</p>
+    <div class="sws">
+      <button type="button" class="sw" data-act="mood" data-val="candle" aria-label="Candlelight"></button>
+      <button type="button" class="sw" data-act="mood" data-val="moon" aria-label="Moonlight"></button>
+      <button type="button" class="sw" data-act="mood" data-val="ember" aria-label="Ember"></button>
+      <button type="button" class="sw" data-act="mood" data-val="violet" aria-label="Violet"></button>
+    </div>
+    <div class="meter"><i id="moodBar"></i></div>
+    <p class="count" id="moodMsg" style="margin-top:7px">The room is candlelit</p>
     <p class="fine" id="ctlMsg" style="min-height:17px;margin-top:9px"></p>
   </div>
 </section>
@@ -230,12 +257,14 @@ function listen() {
   });
   es.addEventListener('return', e => { if (JSON.parse(e.data).id === me.id) hideBeat(); });
   es.addEventListener('arrive', () => refresh());
+  es.addEventListener('mood', e => { mood = JSON.parse(e.data).mood; paintMood(null, 0, mood); });
   es.addEventListener('vote', e => applyVote(JSON.parse(e.data)));
   es.addEventListener('control', e => {
     const c = JSON.parse(e.data);
     /* somebody else's beat is landing in the room right now. Grey the button while it
        plays rather than let this phone fire a request the server is going to refuse. */
     if (c.gapUntil && (!me || c.from !== me.id)) lockAct[c.action] = c.gapUntil;
+    if (c.action === 'mood' && c.tally) { mood = c.mood || mood; paintMood(c.tally, c.need, c.mood); }
     tick();
   });
   es.addEventListener('controlstate', e => applyState(JSON.parse(e.data)));
@@ -266,10 +295,14 @@ async function cast(side) {
    Two locks, BOTH handed down by the server rather than guessed here. lockAll is this
    guest's own budget; lockAct is per action and moves for the whole room, so a button
    also greys out when somebody else just used it. */
-const CTL = [...document.querySelectorAll('#ctlBox .cbtn')];
+const CTL = [...document.querySelectorAll('#ctlBox .cbtn, #ctlBox .sw')];
 for (const b of CTL) b.dataset.label = b.textContent;
 const lockAct = {};
 let lockAll = 0, voteOpen = false, sayUntil = 0;
+let mood = 'candle', myMood = null;
+const MOODNAME = { candle: 'candlelight', moon: 'moonlight', ember: 'ember', violet: 'violet' };
+const ROOMIS = { candle: 'The room is candlelit', moon: 'The room is under moonlight',
+                 ember: 'The room burns ember', violet: 'The room is violet' };
 
 function say(msg) { $('#ctlMsg').textContent = msg; sayUntil = Date.now() + 4000; }
 
@@ -277,13 +310,31 @@ function applyMe(m) {
   if (!m) return;
   lockAll = m.until || 0;
   for (const a in (m.ready || {})) lockAct[a] = m.ready[a];
+  myMood = m.mood || null;
   tick();
 }
 
 function applyState(s) {
   if (!s) return;
   voteOpen = !!s.voteOpen;
+  mood = s.mood || mood;
+  paintMood(s.tally, s.need, s.mood);
   tick();
+}
+
+/* The tally IS the mood control. The room turns when enough of the floor asks, so
+   the count has to be visible while it builds, or the swatch reads as broken every
+   time one person taps it and nothing happens. */
+function paintMood(tally, need, room) {
+  const t = tally || {};
+  const n = Math.max(1, need || 1);
+  let lead = null, top = 0;
+  for (const k in t) if (t[k] > top) { top = t[k]; lead = k; }
+  $('#moodBar').style.width = Math.min(100, (top / n) * 100) + '%';
+  $('#moodMsg').textContent =
+    voteOpen ? 'The room is voting. Answer that first.'
+    : top ? `${top} of ${n} asking for ${MOODNAME[lead] || lead}`
+    : ROOMIS[room || mood] || ROOMIS.candle;
 }
 
 /* One ticker for every button. It renders nothing but the locks the server gave us,
@@ -294,6 +345,12 @@ function tick() {
   for (const b of CTL) {
     const a = b.dataset.act;
     const left = Math.ceil((Math.max(lockAll, lockAct[a] || 0) - now) / 1000);
+    if (b.classList.contains('sw')) {
+      // swatches carry no text: state is the ring, not a countdown
+      b.classList.toggle('on', myMood === b.dataset.val);
+      b.disabled = left > 0 || voteOpen;
+      continue;
+    }
     b.disabled = left > 0;
     b.textContent = left > 0 ? b.dataset.label + ' · ' + left : b.dataset.label;
   }
@@ -303,7 +360,7 @@ setInterval(tick, 250);
 async function ctlSend(btn) {
   if (!me) return;
   const action = btn.dataset.act;
-  const value = +(btn.dataset.val || 0);
+  const value = action === 'mood' ? btn.dataset.val : +(btn.dataset.val || 0);
   btn.disabled = true;                       // no second tap while the room answers
   /* Venue wifi drops. A rejected fetch here would leave the button dead for the rest
      of the night with no way back, so the failure path hands it straight to the ticker,
@@ -328,6 +385,10 @@ async function ctlSend(btn) {
   }
   applyState(data.state);
   applyMe(data);
+  if (action === 'mood') {
+    if (data.tally) paintMood(data.tally, data.need, data.mood);
+    if (data.turned) { mood = value; say('The room turns to ' + (MOODNAME[value] || value) + '.'); }
+  }
   tick();
 }
 for (const b of CTL) b.onclick = () => ctlSend(b);

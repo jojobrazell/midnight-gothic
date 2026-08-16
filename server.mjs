@@ -48,6 +48,10 @@ const DEFAULTS = {
    differently. A budget per guest stops one phone owning the wall. A gap per action
    stops the same beat landing on top of itself and reading as noise. A room budget
    stops two hundred phones on a packed floor from melting the projection at 1am. */
+/* The moods guests can vote the room into. Each is a designed lighting palette
+   in the room page; the server only referees names. */
+const MOODS = ['candle','moon','ember','violet'];
+
 const CONTROL = {
   windowMs: 10000,      // the per-guest budget window
   perGuest: 3,          // actions a guest may spend inside it
@@ -244,7 +248,7 @@ function moodNeed() {
    their mind inside the window: the last side they asked for is the one that counts. */
 function moodTally() {
   const now = Date.now();
-  const t = { candle: 0, moon: 0 };
+  const t = Object.fromEntries(MOODS.map(m => [m, 0]));
   for (const [id, r] of moodReq) {
     const g = guests.get(id);
     if (!g || g.banished || now - r.at > CONTROL.moodWindowMs) { moodReq.delete(id); continue; }
@@ -515,7 +519,7 @@ createServer(async (req, res) => {
       let extra = {};
 
       if (action === 'mood') {
-        value = raw.value === 'moon' ? 'moon' : 'candle';
+        value = MOODS.includes(raw.value) ? raw.value : 'candle';
         moodReq.set(g.id, { side: value, at: now });
         const tally = moodTally(), need = moodNeed();
         /* The flip is a ROOM event, not a control event: the projection and every
@@ -673,7 +677,7 @@ createServer(async (req, res) => {
     if (req.method === 'POST' && u.pathname === '/api/mood') {
       const raw = JSON.parse(await readBody(req, 4000));
       if (!staff(raw)) return json(403, { error: 'nope' });
-      mood = raw.mood === 'moon' ? 'moon' : 'candle';
+      mood = MOODS.includes(raw.mood) ? raw.mood : 'candle';
       persist(); broadcast('mood', { mood });
       settleMood();   // staff outrank the tally, or the next tap undoes them
       return json(200, { mood });
